@@ -110,7 +110,7 @@ jobs:
       # a specific golangci-lint v2 release is chosen; `version: latest` tracks
       # the newest v2 build and can shift default checks between runs.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
