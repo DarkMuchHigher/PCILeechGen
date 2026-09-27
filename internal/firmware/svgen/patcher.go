@@ -128,7 +128,7 @@ func (p *SVPatcher) patchShadowConfigSpace() error {
 				label: "shadow: latch MSI-X enable and function mask",
 			},
 		}
-		if err := p.patchFile(shadowFile, patches); err != nil {
+		if err = p.patchFile(shadowFile, patches); err != nil {
 			return err
 		}
 	}
@@ -728,13 +728,13 @@ func FormatPatchSummary(results []PatchResult) string {
 	var sb strings.Builder
 	for _, r := range results {
 		if len(r.Patches) > 0 {
-			sb.WriteString(fmt.Sprintf("  %s:\n", r.File))
+			fmt.Fprintf(&sb, "  %s:\n", r.File)
 			for _, p := range r.Patches {
-				sb.WriteString(fmt.Sprintf("    -> %s\n", p))
+				fmt.Fprintf(&sb, "    -> %s\n", p)
 			}
 		}
 		for _, w := range r.Warnings {
-			sb.WriteString(fmt.Sprintf("  ⚠ %s\n", w))
+			fmt.Fprintf(&sb, "  ⚠ %s\n", w)
 		}
 	}
 	return sb.String()

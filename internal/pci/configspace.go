@@ -122,9 +122,9 @@ func (cs *ConfigSpace) HexDump(maxBytes int) string {
 
 	var sb strings.Builder
 	for i := 0; i < maxBytes; i += 16 {
-		sb.WriteString(fmt.Sprintf("%03x: ", i))
+		fmt.Fprintf(&sb, "%03x: ", i)
 		for j := 0; j < 16 && i+j < maxBytes; j++ {
-			sb.WriteString(fmt.Sprintf("%02x ", cs.Data[i+j]))
+			fmt.Fprintf(&sb, "%02x ", cs.Data[i+j])
 			if j == 7 {
 				sb.WriteString(" ")
 			}

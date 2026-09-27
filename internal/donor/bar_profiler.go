@@ -74,9 +74,9 @@ func (p *BARProfiler) ProfileBAR(resourcePath string, barIndex, maxSize int) (*B
 		return nil, fmt.Errorf("BAR%d resource file is empty", barIndex)
 	}
 	if nvme {
-		data, err := readNVMeBARViaMmap(f, barIndex, size)
-		if err != nil {
-			return nil, err
+		data, readErr := readNVMeBARViaMmap(f, barIndex, size)
+		if readErr != nil {
+			return nil, readErr
 		}
 		return snapshotBARProfile(data, barIndex, true), nil
 	}

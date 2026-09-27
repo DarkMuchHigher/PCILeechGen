@@ -1368,7 +1368,8 @@ func runVerilatorSimulation(t *testing.T, sources map[string]string) {
 		}
 	}
 	objDir := filepath.Join(dir, "obj")
-	args := []string{"--binary", "--timing", "-Wno-fatal", "--top-module", "tb", "-Mdir", objDir, "-o", "sim"}
+	args := make([]string, 0, 9+len(paths))
+	args = append(args, "--binary", "--timing", "-Wno-fatal", "--top-module", "tb", "-Mdir", objDir, "-o", "sim")
 	args = append(args, paths...)
 	build := exec.Command(verilator, args...)
 	build.Dir = dir

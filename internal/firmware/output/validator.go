@@ -116,7 +116,7 @@ func ValidateHexFile(hexContent string, expectedWords int) error {
 			return fmt.Errorf("line %d: expected 8 hex chars, got %d (%q)", i+1, len(line), line)
 		}
 		for _, c := range line {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
 				return fmt.Errorf("line %d: invalid hex character %q", i+1, string(c))
 			}
 		}

@@ -35,12 +35,12 @@ func CopyFile(src, dst string) error {
 	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
 		return fmt.Errorf("destination directory %q is not a real directory", parent)
 	}
-	if existing, err := os.Lstat(dst); err == nil {
-		if !existing.Mode().IsRegular() {
+	if dstInfo, lstatErr := os.Lstat(dst); lstatErr == nil {
+		if !dstInfo.Mode().IsRegular() {
 			return fmt.Errorf("refusing to replace non-regular destination %q", dst)
 		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect destination %q: %w", dst, err)
+	} else if !os.IsNotExist(lstatErr) {
+		return fmt.Errorf("inspect destination %q: %w", dst, lstatErr)
 	}
 
 	// Never open dst for truncation: a pre-existing symlink could otherwise

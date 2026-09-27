@@ -165,11 +165,11 @@ func FormatReport(profile *Profile) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("=== Behavior Profile: %s (class 0x%06X) ===\n",
-		profile.DeviceBDF, profile.ClassCode))
-	sb.WriteString(fmt.Sprintf("Duration: %v | Reads: %d | Writes: %d | Unique regs: %d\n\n",
+	fmt.Fprintf(&sb, "=== Behavior Profile: %s (class 0x%06X) ===\n",
+		profile.DeviceBDF, profile.ClassCode)
+	fmt.Fprintf(&sb, "Duration: %v | Reads: %d | Writes: %d | Unique regs: %d\n\n",
 		profile.Duration, profile.AccessStats.TotalReads,
-		profile.AccessStats.TotalWrites, profile.AccessStats.UniqueOffsets))
+		profile.AccessStats.TotalWrites, profile.AccessStats.UniqueOffsets)
 
 	if len(profile.InitSequence) > 0 {
 		sb.WriteString("--- Initialization Sequence ---\n")
@@ -178,8 +178,8 @@ func FormatReport(profile *Profile) string {
 			if step.Purpose != "" {
 				purpose = " ← " + step.Purpose
 			}
-			sb.WriteString(fmt.Sprintf("  %2d. [%v] %s 0x%03X = 0x%016X%s\n",
-				step.Order, step.Timestamp, step.Type, step.Offset, step.Value, purpose))
+			fmt.Fprintf(&sb, "  %2d. [%v] %s 0x%03X = 0x%016X%s\n",
+				step.Order, step.Timestamp, step.Type, step.Offset, step.Value, purpose)
 		}
 	}
 

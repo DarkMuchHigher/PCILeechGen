@@ -189,11 +189,12 @@ func (c *checker) checkDriver() {
 	if c.dev == nil {
 		return
 	}
-	if c.dev.Driver == "" {
+	switch c.dev.Driver {
+	case "":
 		fmt.Fprintln(c.w, color.OK("No driver bound"))
-	} else if c.dev.Driver == "vfio-pci" {
+	case "vfio-pci":
 		fmt.Fprintln(c.w, color.OK("Already bound to vfio-pci"))
-	} else {
+	default:
 		fmt.Fprintln(c.w, color.Warnf("Currently bound to %q (will need unbinding)", c.dev.Driver))
 	}
 }

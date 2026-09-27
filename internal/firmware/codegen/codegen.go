@@ -20,9 +20,9 @@ func formatCOE(header string, words []uint32) string {
 
 	for i, w := range words {
 		if i < len(words)-1 {
-			sb.WriteString(fmt.Sprintf("%08x,\n", w))
+			fmt.Fprintf(&sb, "%08x,\n", w)
 		} else {
-			sb.WriteString(fmt.Sprintf("%08x;\n", w))
+			fmt.Fprintf(&sb, "%08x;\n", w)
 		}
 	}
 	return sb.String()
@@ -164,11 +164,11 @@ func GenerateBarContentCOE(barContents map[int][]byte, size int) string {
 func GenerateConfigSpaceHex(cs *pci.ConfigSpace) string {
 	var sb strings.Builder
 	sb.WriteString("// PCILeechGen - Config Space Init (4KB = 1024 DWORDs)\n")
-	sb.WriteString(fmt.Sprintf("// Device: %04X:%04X\n", cs.VendorID(), cs.DeviceID()))
+	fmt.Fprintf(&sb, "// Device: %04X:%04X\n", cs.VendorID(), cs.DeviceID())
 
 	for i := 0; i < shadowCfgSpaceWords; i++ {
 		word := cs.ReadU32(i * 4)
-		sb.WriteString(fmt.Sprintf("%08X // [%03X]\n", word, i*4))
+		fmt.Fprintf(&sb, "%08X // [%03X]\n", word, i*4)
 	}
 
 	return sb.String()
@@ -178,14 +178,14 @@ func GenerateConfigSpaceHex(cs *pci.ConfigSpace) string {
 func GenerateMSIXTableHex(entries []pci.MSIXEntry) string {
 	var sb strings.Builder
 	sb.WriteString("// PCILeechGen - MSI-X Table Init\n")
-	sb.WriteString(fmt.Sprintf("// %d vectors (%d DWORDs)\n", len(entries), len(entries)*4))
+	fmt.Fprintf(&sb, "// %d vectors (%d DWORDs)\n", len(entries), len(entries)*4)
 
 	for i, e := range entries {
 		ctrl := e.Control | 0x01 // masked on init
-		sb.WriteString(fmt.Sprintf("%08X // [%d] addr_lo\n", e.AddrLo, i))
-		sb.WriteString(fmt.Sprintf("%08X // [%d] addr_hi\n", e.AddrHi, i))
-		sb.WriteString(fmt.Sprintf("%08X // [%d] data\n", e.Data, i))
-		sb.WriteString(fmt.Sprintf("%08X // [%d] control (masked)\n", ctrl, i))
+		fmt.Fprintf(&sb, "%08X // [%d] addr_lo\n", e.AddrLo, i)
+		fmt.Fprintf(&sb, "%08X // [%d] addr_hi\n", e.AddrHi, i)
+		fmt.Fprintf(&sb, "%08X // [%d] data\n", e.Data, i)
+		fmt.Fprintf(&sb, "%08X // [%d] control (masked)\n", ctrl, i)
 	}
 
 	return sb.String()

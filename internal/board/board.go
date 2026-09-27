@@ -161,7 +161,7 @@ func Find(name string) (*Board, error) {
 func formatBoardList() string {
 	var sb strings.Builder
 	for _, b := range registry {
-		sb.WriteString(fmt.Sprintf("  %-25s %s (x%d)\n", b.Name, b.FPGAPart, b.PCIeLanes))
+		fmt.Fprintf(&sb, "  %-25s %s (x%d)\n", b.Name, b.FPGAPart, b.PCIeLanes)
 	}
 	return sb.String()
 }

@@ -217,7 +217,7 @@ func blockBackedByTarget(blockPath, target string, seen map[string]bool) (bool, 
 		return true, nil
 	}
 
-	if _, err := os.Stat(filepath.Join(resolved, "partition")); err == nil {
+	if _, err = os.Stat(filepath.Join(resolved, "partition")); err == nil {
 		return blockBackedByTarget(filepath.Dir(resolved), target, seen)
 	} else if !os.IsNotExist(err) {
 		return false, err
@@ -225,12 +225,12 @@ func blockBackedByTarget(blockPath, target string, seen map[string]bool) (bool, 
 
 	if subsystem, ok := nvmeSubsystemDir(resolved); ok {
 		multipath := filepath.Join(resolved, "multipath")
-		paths, err := os.ReadDir(multipath)
-		if err == nil && len(paths) > 0 {
+		paths, readErr := os.ReadDir(multipath)
+		if readErr == nil && len(paths) > 0 {
 			return blockLinksBackedByTarget(multipath, paths, target, seen)
 		}
-		if err != nil && !os.IsNotExist(err) {
-			return false, fmt.Errorf("cannot resolve NVMe multipath head %s: %w", resolved, err)
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return false, fmt.Errorf("cannot resolve NVMe multipath head %s: %w", resolved, readErr)
 		}
 
 		entries, fallbackErr := os.ReadDir(subsystem)

@@ -215,7 +215,7 @@ func readNVMeBARViaMmap(f *os.File, barIndex, size int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("NVMe BAR0 mmap failed (no blind fallback): %w", err)
 	}
-	defer syscall.Munmap(mapped)
+	defer func() { _ = syscall.Munmap(mapped) }()
 	return baraccess.ReadNVMe(barIndex, size, func(off int) (uint32, error) {
 		return baraccess.Load32(mapped, off)
 	})

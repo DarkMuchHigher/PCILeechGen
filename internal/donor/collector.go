@@ -132,7 +132,7 @@ func (c *Collector) validateBARContents(ctx *DeviceContext) error {
 
 	if allMemoryBARsFF && barCriticalClass(ctx.Device.ClassCode) {
 		return fmt.Errorf(
-			"All %d eligible memory BAR(s) returned 0xFF for class 0x%06X (driver %q). "+
+			"all %d eligible memory BAR(s) returned 0xFF for class 0x%06X (driver %q). "+
 				"The device is not responding - possible causes:\n"+
 				"  • device is in D3 (sleep) power state\n"+
 				"  • IOMMU/VT-d not enabled or misconfigured\n"+
