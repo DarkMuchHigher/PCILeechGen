@@ -22,8 +22,6 @@ func NewConfigSpace() *ConfigSpace {
 }
 
 func NewConfigSpaceFromBytes(data []byte) *ConfigSpace {
-	// copy already caps at the fixed array; clamp Size to match so Bytes() and
-	// Size-bounded consumers never read past the backing array on oversized input.
 	cs := &ConfigSpace{Size: min(len(data), ConfigSpaceSize)}
 	copy(cs.Data[:], data)
 	return cs

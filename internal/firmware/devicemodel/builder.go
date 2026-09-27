@@ -193,8 +193,6 @@ func buildRegisters(ctx *donor.DeviceContext) []Register {
 		for _, probe := range probes {
 			readOnlyNVMe := profile.ReadPolicy == baraccess.NVMeReadPolicy && devclass.IsNVMe(ctx.Device.ClassCode)
 			if readOnlyNVMe {
-				// Only the value was measured. Access masks come from the existing
-				// controller spec profile, not from zero-valued probe masks.
 				probe.RWMask, probe.W1CMask, probe.MaybeRW1C = 0, 0, false
 				for _, def := range devclass.ProfileForClass(ctx.Device.ClassCode).BARDefaults {
 					if def.Offset == probe.Offset {

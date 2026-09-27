@@ -25,8 +25,5 @@ func checkInitialPIDNamespace() error {
 	if errno != syscall.EPERM {
 		return fmt.Errorf("cannot verify PID namespace parent: %w", errno)
 	}
-	// EPERM means either the initial PID namespace has no parent or its parent
-	// is outside this process's user-namespace authority. In the latter case the
-	// process also lacks authority to write the parent namespace's host sysfs.
 	return nil
 }

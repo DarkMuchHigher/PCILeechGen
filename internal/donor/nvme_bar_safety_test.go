@@ -48,8 +48,6 @@ func TestNVMeAllSysfsReadEntrypoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkNVMeSnapshot(t, data, original)
-	// Native-driver capture uses this same retry helper, so the read cap must
-	// also survive the native-driver path, not just initial collection.
 	data, err = c.readBARUntilValid(bdf, 0, 65536)
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +91,6 @@ func TestNVMeProfilerNoWritesOrDoorbells(t *testing.T) {
 }
 
 func TestNVMeProfilesUseRAMOnly(t *testing.T) {
-	// No sysfs reader at all: profiling cannot reopen hardware, including after
-	// a missing/failed BAR snapshot. A large old buffer must not expand policy.
 	c := &Collector{}
 	bars := []pci.BAR{{Index: 0, Size: 65536, Type: pci.BARTypeMem64}, {Index: 2, Size: 4096, Type: pci.BARTypeMem32}}
 	contents := map[int][]byte{0: bytes.Repeat([]byte{1}, 65536)}

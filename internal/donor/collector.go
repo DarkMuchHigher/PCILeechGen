@@ -513,9 +513,6 @@ func (c *Collector) collectBARMemory(bdf pci.BDF, bars []pci.BAR, vc *nativeVisi
 }
 
 // readBARs reads eligible BARs via sysfs mmap, skipping already-valid entries.
-// Non-NVMe contents are capped to maxBARReadSize to limit slow reads.
-// ReadBARContent enforces the NVMe whitelist on every call, including retries
-// and captureViaNativeDriver; a size cap alone does not make MMIO safe.
 func (c *Collector) readBARs(bdf pci.BDF, eligible []pci.BAR, contents map[int][]byte) {
 	for _, bar := range eligible {
 		if data, ok := contents[bar.Index]; ok && !isAllFF(data) {
@@ -545,8 +542,6 @@ func (c *Collector) collectBARProfiles(classCode uint32, bars []pci.BAR, barCont
 			continue
 		}
 
-		// Reuse the collected RAM snapshot. A second live scan adds risk without
-		// discovering write semantics, even when the profiler is read-only.
 		profile := snapshotBARProfile(data, bar.Index, isNVMeClass(classCode))
 		if profile == nil {
 			continue

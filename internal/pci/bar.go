@@ -134,9 +134,6 @@ func ParseBARsFromSysfsResource(lines []string) []BAR {
 
 		bar := BAR{Index: i}
 
-		// Treat an unparsable line, an empty region, or an inverted range as
-		// disabled. Without the end >= start guard, "end - start + 1" would
-		// underflow into a bogus multi-exabyte size on a partially parsed line.
 		if n != 3 || (start == 0 && end == 0) || end < start {
 			bar.Type = BARTypeDisabled
 		} else {

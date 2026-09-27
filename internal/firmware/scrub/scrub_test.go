@@ -1091,11 +1091,6 @@ func TestPhisonNVMe64bMSIXScrub(t *testing.T) {
 }
 
 func TestCapSizePrefersChainExtentButFloorsTerminalCap(t *testing.T) {
-	// Two unknown caps (not in capMinSize) chained: an inner cap spanning 16
-	// bytes (0x40..0x50) and a terminal cap at 0x50 whose ParseCapabilities
-	// Data runs to end-of-space. capSize must report the inner cap's true 16-byte
-	// extent (so scrub/inject don't clip it) while the terminal cap falls back to
-	// the conservative static size, leaving the trailing gap free.
 	cs := pci.NewConfigSpace()
 	cs.Size = pci.ConfigSpaceSize
 	cs.WriteU16(0x06, 0x0010) // Status: capabilities list present (bit 4)

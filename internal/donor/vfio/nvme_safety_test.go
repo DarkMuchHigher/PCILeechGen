@@ -28,7 +28,6 @@ func TestReadNVMeRegionUsesOffsetAndWhitelist(t *testing.T) {
 	if len(got) != 0x38 || !bytes.Equal(got[:8], data[base:base+8]) || binary.LittleEndian.Uint32(got[0x18:]) != 0 || binary.LittleEndian.Uint32(got[0x20:]) != 0 {
 		t.Fatalf("unexpected snapshot: %x", got)
 	}
-	// Invalid fd demonstrates other BARs/short regions are rejected without I/O.
 	for _, info := range []vfioRegionInfo{{Index: 2, Size: 65536}, {Index: 0, Size: 0x37}} {
 		if _, err := readNVMeRegion(-1, &info); err == nil {
 			t.Fatal("invalid region accepted")

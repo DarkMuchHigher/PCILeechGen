@@ -157,9 +157,6 @@ func TestBARString(t *testing.T) {
 }
 
 func TestParseBARsFromSysfsResourceMalformed(t *testing.T) {
-	// Each line must parse to exactly {start, end, flags} with end >= start,
-	// otherwise the region is treated as disabled rather than yielding a bogus
-	// (underflowed) size from "end - start + 1".
 	lines := []string{
 		"0x00000000f7dfffff 0x00000000f7d00000 0x00000200", // inverted range (end < start)
 		"0x00000000f7d00000",                               // truncated line (only start)

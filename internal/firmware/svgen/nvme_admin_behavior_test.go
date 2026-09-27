@@ -292,17 +292,12 @@ initial begin
     if (dbg_state !== 8'd0) $fatal(22, "responder not idle after CC.EN handshake");
     @(negedge clk);
 
-    // Unsupported log pages retain INVALID_FIELD precedence even when the
-    // unused PRP fields are zero.
     poke_sqe(16'h400, 8'h02, 32'h0,
              32'h0, 32'h0, 32'h0, 32'h0,
              32'h000000FF, 32'h0, 32'h0);
     ring_sq(16'd0, 16'd1);
     wait_cqe(15'h0002);
 
-    // A 4 KiB Identify buffer with only four bytes left in PRP1 requires PRP2.
-    // Reject a missing PRP2 before it turns the remaining payload into writes
-    // at physical address zero.
     host_mem[16'h0000] = 32'hDEADBEEF;
     host_mem[16'h0BFF] = 32'hDEADBEEF;
     poke_sqe(16'h410, 8'h06, 32'h0,
@@ -314,8 +309,6 @@ initial begin
         (host_mem[16'h0BFF] !== 32'hDEADBEEF))
         $fatal(55, "invalid Identify PRPs performed a DMA write");
 
-    // Model an allocator return near the end of a page and prove the Identify
-    // payload continues at PRP2 rather than linearly corrupting the next page.
     host_mem[16'h1800] = 32'hDEADBEEF;
     host_mem[16'h1C00] = 32'hCAFEBABE;
     poke_sqe(16'h420, 8'h06, 32'h0,

@@ -313,8 +313,6 @@ module pcileech_nvme_admin_responder #(
                     // SN/MN/FR (bytes 4..71) come from the donor identify ROM;
                     // only optional feature fields are substituted below.
                     11'd64: identify_data_word = 32'h00030003; // OACS: VWC + Format NVM;
-                                                                 // ACL=3, AERL=0 (exactly one
-                                                                 // outstanding AER is implemented)
                     11'd65: identify_data_word = 32'h00000002; // ELPE/LPA/one power state.
                     11'd66: identify_data_word = 32'h01570000; // WCTEMP=343K.
                     11'd67: identify_data_word = 32'h00000166; // CCTEMP=358K.
@@ -1462,10 +1460,6 @@ module pcileech_nvme_admin_responder #(
                                         8'h04: feat_temp_threshold <= cmd_cdw11;
                                         8'h06: feat_write_cache <= cmd_cdw11;
                                         8'h07: begin
-                                            // Number of Queues: grant 1 SQ + 1 CQ
-                                            // (RTL implements exactly one IO queue pair;
-                                            //  returning 0 would tell the driver there are
-                                            //  no IO queues at all).
                                             num_queues_granted <= 32'h00010001;
                                             cqe_result <= 32'h00010001;
                                         end

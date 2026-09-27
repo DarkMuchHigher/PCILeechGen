@@ -184,8 +184,6 @@ func Collect(bdf string) (*DeviceDump, error) {
 	return dump, nil
 }
 
-// readNVMeRegion never falls back to a whole-region pread or mmap. VFIO's
-// region offset is retained, but each requested transaction is exactly 4 bytes.
 func readNVMeRegion(deviceFD int, info *vfioRegionInfo) ([]byte, error) {
 	return baraccess.ReadNVMe(int(info.Index), int(min(info.Size, uint64(baraccess.NVMeSnapshotSize))),
 		func(off int) (uint32, error) {
