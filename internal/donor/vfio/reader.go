@@ -3,10 +3,14 @@
 package vfio
 
 import (
+	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"os"
 	"unsafe"
 
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
+	"github.com/sercanarga/pcileechgen/internal/firmware/devclass"
 	"golang.org/x/sys/unix"
 )
 
@@ -143,6 +147,11 @@ func Collect(bdf string) (*DeviceDump, error) {
 	}
 	dump.ConfigSpace = cs
 	dump.ConfigSpaceSize = csSize
+	if len(cs) < 12 || isAllFF(cs[:4]) || isAllFF(cs[9:12]) {
+		return nil, fmt.Errorf("refusing BAR collection without valid PCI config/class data")
+	}
+	classCode := uint32(cs[9]) | uint32(cs[10])<<8 | uint32(cs[11])<<16
+	nvme := devclass.IsNVMe(classCode)
 
 	// BAR regions
 	for i := 0; i < 6; i++ {
@@ -158,14 +167,38 @@ func Collect(bdf string) (*DeviceDump, error) {
 		})
 
 		if info.Size > 0 && info.Flags&vfioRegionFlagRead != 0 {
-			barData, _, err := readBARRegion(session.deviceFD, vfioPCIBAR0+i, int(info.Size))
+			var barData []byte
+			if nvme {
+				barData, err = readNVMeRegion(session.deviceFD, info)
+			} else {
+				barData, _, err = readBARRegion(session.deviceFD, vfioPCIBAR0+i, int(min(info.Size, uint64(barDumpMaxSize))))
+			}
 			if err == nil && len(barData) > 0 {
 				dump.BARContents[i] = barData
+			} else if err != nil {
+				slog.Warn("VFIO BAR collection skipped", "bar", i, "error", err)
 			}
 		}
 	}
 
 	return dump, nil
+}
+
+// readNVMeRegion never falls back to a whole-region pread or mmap. VFIO's
+// region offset is retained, but each requested transaction is exactly 4 bytes.
+func readNVMeRegion(deviceFD int, info *vfioRegionInfo) ([]byte, error) {
+	return baraccess.ReadNVMe(int(info.Index), int(min(info.Size, uint64(baraccess.NVMeSnapshotSize))),
+		func(off int) (uint32, error) {
+			var buf [4]byte
+			n, err := unix.Pread(deviceFD, buf[:], int64(info.Offset)+int64(off))
+			if err != nil {
+				return 0, err
+			}
+			if n != len(buf) {
+				return 0, fmt.Errorf("short DWORD read: %d bytes", n)
+			}
+			return binary.LittleEndian.Uint32(buf[:]), nil
+		})
 }
 
 // getRegionInfo queries region metadata via VFIO ioctl.

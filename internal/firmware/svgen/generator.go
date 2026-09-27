@@ -51,6 +51,9 @@ type SVGeneratorConfig struct {
 	MaxPayloadBytes             int
 	BehaviorRules               *behavior.RuleSet
 	CompiledBehavior            *CompiledBehavior
+	ILAInstanceSV               string
+	HASILA                      bool // true when ILA debug core is enabled (--ila), gates HAS_ILA localparam
+	ShadowConfig                bool
 }
 
 func (c *SVGeneratorConfig) ResolvedReadCompletionBoundaryBytes() int {

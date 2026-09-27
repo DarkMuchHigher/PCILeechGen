@@ -157,7 +157,7 @@ func TestGenerateProjectTCL_MSIXConfig(t *testing.T) {
 		},
 	}
 
-	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false)
+	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false, 0)
 
 	for _, want := range []string{
 		"MSIx_Table_Size",
@@ -166,7 +166,7 @@ func TestGenerateProjectTCL_MSIXConfig(t *testing.T) {
 		"BAR_1:0",
 		"MSIx_PBA_BIR",
 		"00002000",
-		"129vec",
+		"130vec",
 	} {
 		if !strings.Contains(tcl, want) {
 			t.Errorf("TCL output missing %q", want)
@@ -192,7 +192,7 @@ func TestGenerateProjectTCL_NoMSIX(t *testing.T) {
 		BARs:        []pci.BAR{},
 	}
 
-	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false)
+	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false, 0)
 
 	// MSI-X should NOT be configured when donor has no MSI-X
 	if strings.Contains(tcl, "MSIx_Table_Size") {

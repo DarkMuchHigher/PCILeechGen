@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/sercanarga/pcileechgen/internal/donor"
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
 	"github.com/sercanarga/pcileechgen/internal/firmware/devclass"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 	"github.com/sercanarga/pcileechgen/internal/util"
@@ -142,7 +143,9 @@ func BuildBARModels(
 		model.Is64Bit = bar.Is64Bit || bar.Type == pci.BARTypeMem64
 		model.UpperBIR = upperBIR
 		model.ClassSpecific = classSpecific && len(model.Registers) > 0
-		validateModel(model)
+		if err := validateModel(model); err != nil {
+			return nil, fmt.Errorf("BAR%d model invalid: %w", bir, err)
+		}
 		models = append(models, model)
 	}
 	return models, nil
@@ -162,14 +165,27 @@ func ModelForBIR(models []*BARModel, bir int) *BARModel {
 func BuildBARModel(barData []byte, classCode uint32, profile *donor.BARProfile) *BARModel {
 	// Use probe data when available, but bail if VFIO reported
 	// everything as writable (breaks CC->CSTS handshake etc).
-	if profile != nil && len(profile.Probes) > 0 {
+	// A read-only NVMe snapshot has no measured write masks. Use the existing
+	// spec model so zero masks do not disable CC/AQA/ASQ/ACQ writes or drop
+	// currently-zero registers required for controller initialization.
+	if profile != nil && len(profile.Probes) > 0 && profile.ReadPolicy != baraccess.NVMeReadPolicy {
 		if !isProbeDataReliable(profile) {
 			slog.Warn("BAR probe data unreliable (all registers report fully writable), falling back to spec-based model",
 				"probes", len(profile.Probes))
 		} else {
 			model := SynthesizeBARModel(profile, classCode)
 			if model != nil {
-				return model
+				// The collector profiles BARs with the read-only snapshot profiler
+				// (active writes can brick a device), so every probe reports
+				// RWMask == 0. A probe-derived model then has no writable registers
+				// and the driver cannot program the device (e.g. NVMe CC/AQA/ASQ/ACQ
+				// writes get dropped, zero-valued registers are pruned away).
+				// Prefer the spec model for classes that have one.
+				if hasWritableRegisters(model) || specBARModelForClass(classCode, barData) == nil {
+					return model
+				}
+				slog.Warn("probe-derived BAR model has no writable registers; using spec model",
+					"class", fmt.Sprintf("%06x", classCode))
 			}
 		}
 	}
@@ -177,9 +193,28 @@ func BuildBARModel(barData []byte, classCode uint32, profile *donor.BARProfile) 
 	// fall back to hardcoded spec tables
 	model := specBARModelForClass(classCode, barData)
 	if model != nil {
-		validateModel(model)
+		if err := validateModel(model); err != nil {
+			slog.Error("spec BAR model failed validation",
+				"class", fmt.Sprintf("0x%06X", classCode), "err", err)
+			return nil
+		}
 	}
 	return model
+}
+
+// hasWritableRegisters reports whether the model has at least one register a
+// driver may write (plain RW or W1C bits). A read-only probe snapshot yields a
+// model without any, which is never usable for real device emulation.
+func hasWritableRegisters(m *BARModel) bool {
+	if m == nil {
+		return false
+	}
+	for _, r := range m.Registers {
+		if r.RWMask != 0 || r.W1CMask != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // specBARModelForClass returns the hardcoded spec model for a class, or nil.
@@ -259,8 +294,11 @@ func specRegisterAttrs(classCode uint32) map[uint32]specRegAttr {
 	return out
 }
 
-// validateModel checks for misaligned or duplicate offsets.
-func validateModel(m *BARModel) {
+// validateModel checks for misaligned or duplicate offsets and inconsistent
+// masks. It returns an error rather than panicking so a malformed model - a
+// spec-table bug, or hostile donor-derived probe data once active probing is
+// enabled - degrades gracefully instead of aborting the whole build.
+func validateModel(m *BARModel) error {
 	seen := make(map[uint32]string, len(m.Registers))
 	for _, r := range m.Registers {
 		if m.Size > 0 && int(r.Offset) >= m.Size {
@@ -268,16 +306,16 @@ func validateModel(m *BARModel) {
 				"reg", r.Name, "offset", fmt.Sprintf("0x%X", r.Offset), "bar_size", m.Size)
 		}
 		if r.Offset%4 != 0 {
-			panic(fmt.Sprintf("barmodel: register %s at offset 0x%X is not DWORD-aligned", r.Name, r.Offset))
+			return fmt.Errorf("register %s at offset 0x%X is not DWORD-aligned", r.Name, r.Offset)
 		}
 		if prev, ok := seen[r.Offset]; ok {
-			panic(fmt.Sprintf("barmodel: %s and %s share offset 0x%X", prev, r.Name, r.Offset))
+			return fmt.Errorf("%s and %s share offset 0x%X", prev, r.Name, r.Offset)
 		}
 		// RW and W1C masks must be disjoint: a bit can't be both plain-writable
 		// and write-1-to-clear.
 		if r.W1CMask&r.RWMask != 0 {
-			panic(fmt.Sprintf("barmodel: register %s at offset 0x%X has overlapping W1C/RW masks (W1CMask=0x%08X & RWMask=0x%08X = 0x%08X) — they must be disjoint",
-				r.Name, r.Offset, r.W1CMask, r.RWMask, r.W1CMask&r.RWMask))
+			return fmt.Errorf("register %s at offset 0x%X has overlapping W1C/RW masks (W1CMask=0x%08X & RWMask=0x%08X = 0x%08X) — they must be disjoint",
+				r.Name, r.Offset, r.W1CMask, r.RWMask, r.W1CMask&r.RWMask)
 		}
 		if r.Width > 0 {
 			var widthMask uint32 = 0xFFFFFFFF
@@ -285,12 +323,13 @@ func validateModel(m *BARModel) {
 				widthMask = (1 << bits) - 1
 			}
 			if r.W1CMask&^widthMask != 0 || r.RWMask&^widthMask != 0 {
-				panic(fmt.Sprintf("barmodel: register %s at offset 0x%X has mask bits beyond Width %d (W1CMask=0x%08X, RWMask=0x%08X, valid=0x%08X)",
-					r.Name, r.Offset, r.Width, r.W1CMask, r.RWMask, widthMask))
+				return fmt.Errorf("register %s at offset 0x%X has mask bits beyond Width %d (W1CMask=0x%08X, RWMask=0x%08X, valid=0x%08X)",
+					r.Name, r.Offset, r.Width, r.W1CMask, r.RWMask, widthMask)
 			}
 		}
 		seen[r.Offset] = r.Name
 	}
+	return nil
 }
 
 // NVMe BAR0 (spec 1.4, offsets 0x00–0x34).
@@ -698,7 +737,10 @@ func SynthesizeBARModel(profile *donor.BARProfile, classCode uint32) *BARModel {
 		Size:      profile.Size,
 		Registers: regs,
 	}
-	validateModel(model)
+	if err := validateModel(model); err != nil {
+		slog.Error("synthesized BAR model failed validation", "err", err)
+		return nil
+	}
 	return model
 }
 

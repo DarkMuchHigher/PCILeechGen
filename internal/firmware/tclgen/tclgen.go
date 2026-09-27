@@ -46,6 +46,7 @@ type projectTCLData struct {
 
 	DSNEnabled       bool
 	MSICapVectorsStr string
+	ShadowConfig     bool
 
 	// MSI-X
 	MSIXEnabled     bool
@@ -54,6 +55,8 @@ type projectTCLData struct {
 	MSIXTableOffset string
 	MSIXPBABIR      string
 	MSIXPBAOffset   string
+
+	ILABlock string
 }
 
 // buildTCLData holds template data for Vivado build script.
@@ -111,12 +114,12 @@ func buildBAR0Config(bar0Size int, ctx *donor.DeviceContext) bar0Config {
 	return bar0Config{Enabled: true, Scale: scale, Size: size, Is64bit: is64}
 }
 
-func GenerateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool) string {
-	return generateProjectTCL(ctx, b, libDir, stockBar, nil)
+func GenerateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool, ilaDepth int) string {
+	return generateProjectTCL(ctx, b, libDir, stockBar, nil, ilaDepth)
 }
 
-func GenerateProjectTCLWithConfig(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool, cfg *svgen.SVGeneratorConfig) string {
-	return generateProjectTCL(ctx, b, libDir, stockBar, cfg)
+func GenerateProjectTCLWithConfig(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool, cfg *svgen.SVGeneratorConfig, ilaDepth int) string {
+	return generateProjectTCL(ctx, b, libDir, stockBar, cfg, ilaDepth)
 }
 
 func configBARIs64(cfg *svgen.SVGeneratorConfig, bir int) bool {
@@ -131,7 +134,7 @@ func configBARIs64(cfg *svgen.SVGeneratorConfig, bir int) bool {
 	return false
 }
 
-func generateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool, cfg *svgen.SVGeneratorConfig) string {
+func generateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string, stockBar bool, cfg *svgen.SVGeneratorConfig, ilaDepth int) string {
 	ids := firmware.ExtractDeviceIDs(ctx.ConfigSpace, ctx.ExtCapabilities)
 	linkWidth := clampLinkWidth(ids.LinkWidth, b.PCIeLanes)
 	linkSpeed := b.MaxLinkSpeedOrDefault()
@@ -168,11 +171,10 @@ func generateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string,
 		bars[1].Enabled = false
 	}
 	srcAbs, _ := filepath.Abs(b.SrcPath(libDir))
-	ipAbs, _ := filepath.Abs(b.IPPath(libDir))
 	srcAbs = tclPath(srcAbs)
-	ipAbs = tclPath(ipAbs)
 	data := projectTCLData{
-		BoardName: b.Name, FPGAPart: b.FPGAPart, SrcPath: srcAbs, IPPath: ipAbs,
+		BoardName: b.Name, FPGAPart: b.FPGAPart, SrcPath: srcAbs,
+		IPPath:    "${origin_dir}/ip",
 		TopModule: b.TopModule, DeviceID: fmt.Sprintf("%04X", ctx.Device.DeviceID),
 		VendorID:       fmt.Sprintf("%04X", ctx.Device.VendorID),
 		RevisionID:     fmt.Sprintf("%02X", ctx.Device.RevisionID),
@@ -188,16 +190,22 @@ func generateProjectTCL(ctx *donor.DeviceContext, b *board.Board, libDir string,
 		BARs: bars, DSNEnabled: ids.HasDSN,
 		MSICapVectorsStr: msiVectorsToTCL(extractMSIVectors(ctx)),
 	}
+	if ilaDepth > 0 {
+		data.ILABlock = firmware.ILACreateIPTCL(ilaDepth)
+	}
+	if cfg != nil && cfg.ShadowConfig {
+		data.ShadowConfig = true
+	}
 	if cfg != nil && cfg.MSIXConfig != nil {
 		data.MSIXEnabled = true
-		data.MSIXTableSize = cfg.MSIXConfig.NumVectors - 1
+		data.MSIXTableSize = cfg.MSIXConfig.NumVectors
 		data.MSIXTableBIR = barBIRToTCL(cfg.MSIXConfig.TableBIR, configBARIs64(cfg, cfg.MSIXConfig.TableBIR))
 		data.MSIXTableOffset = fmt.Sprintf("%08X", cfg.MSIXConfig.TableOffset)
 		data.MSIXPBABIR = barBIRToTCL(cfg.MSIXConfig.PBABIR, configBARIs64(cfg, cfg.MSIXConfig.PBABIR))
 		data.MSIXPBAOffset = fmt.Sprintf("%08X", cfg.MSIXConfig.PBAOffset)
 	} else if ctx.MSIXData != nil && ctx.MSIXData.TableSize > 0 {
 		data.MSIXEnabled = true
-		data.MSIXTableSize = ctx.MSIXData.TableSize - 1
+		data.MSIXTableSize = ctx.MSIXData.TableSize
 		data.MSIXTableBIR = barBIRToTCL(ctx.MSIXData.TableBIR, bar0.Is64bit && ctx.MSIXData.TableBIR == 0)
 		data.MSIXTableOffset = fmt.Sprintf("%08X", ctx.MSIXData.TableOffset)
 		data.MSIXPBABIR = barBIRToTCL(ctx.MSIXData.PBABIR, bar0.Is64bit && ctx.MSIXData.PBABIR == 0)

@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/sercanarga/pcileechgen/internal/donor"
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
 	"github.com/sercanarga/pcileechgen/internal/firmware/devclass"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 )
@@ -102,6 +103,9 @@ func emulationHint(bar pci.BAR, data []byte, probe *donor.BARProfile) string {
 		return HintIOSpaceUnsupported
 	}
 	if probe != nil && len(probe.Probes) > 0 {
+		if probe.ReadPolicy == baraccess.NVMeReadPolicy {
+			return HintSpecModel
+		}
 		return HintProbeModel
 	}
 	if len(data) > 0 {
@@ -120,11 +124,15 @@ func registerSummaries(data []byte, probe *donor.BARProfile) []RegisterSummary {
 func summariesFromProbe(profile *donor.BARProfile) []RegisterSummary {
 	regs := make([]RegisterSummary, 0, len(profile.Probes))
 	for _, probe := range profile.Probes {
+		kind := classifyRegister(probe.Original, probe.RWMask, probe.MaybeRW1C)
+		if profile.ReadPolicy == baraccess.NVMeReadPolicy {
+			kind = RegisterUnknown // observed value, unmeasured access behavior
+		}
 		regs = append(regs, RegisterSummary{
 			Offset:   probe.Offset,
 			Original: probe.Original,
 			RWMask:   probe.RWMask,
-			Kind:     classifyRegister(probe.Original, probe.RWMask, probe.MaybeRW1C),
+			Kind:     kind,
 		})
 	}
 	sort.Slice(regs, func(i, j int) bool { return regs[i].Offset < regs[j].Offset })

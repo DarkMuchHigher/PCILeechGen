@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 )
 
@@ -153,12 +154,24 @@ func (sr *SysfsReader) ReadResourceFile(bdf pci.BDF) ([]pci.BAR, error) {
 // ReadBARContent reads the memory contents of a BAR from sysfs resource file.
 // The resource{N} files in sysfs provide direct access to the BAR's memory region.
 // maxSize limits the read to prevent exceeding FPGA BRAM capacity.
+// NVMe additionally requires class metadata and uses a sparse baseline BAR0
+// DWORD snapshot, regardless of maxSize. No bulk-read fallback is used for NVMe.
 //
 // When a device is bound to vfio-pci, direct read() on resource files fails with
 // "input/output error". In this case, mmap() is used instead, which works because
 // the kernel exposes BAR memory via mmap even under vfio-pci.
 func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([]byte, error) {
 	resourcePath := filepath.Join(sr.basePath, bdf.String(), fmt.Sprintf("resource%d", barIndex))
+	nvme, err := baraccess.ResourceIsNVMe(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if nvme && barIndex != 0 {
+		return nil, fmt.Errorf("NVMe BAR%d skipped: no safe read policy", barIndex)
+	}
+	if maxSize <= 0 {
+		return nil, fmt.Errorf("BAR read size must be positive")
+	}
 
 	f, err := os.Open(resourcePath)
 	if err != nil {
@@ -166,13 +179,13 @@ func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([
 	}
 	defer f.Close()
 
-	// Check file size
+	// Bound before converting to int; large apertures must not overflow on 32-bit.
 	fi, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat BAR%d resource file: %w", barIndex, err)
 	}
 
-	fileSize := int(fi.Size())
+	fileSize := int(min(fi.Size(), int64(maxBARReadSize)))
 	if fileSize == 0 {
 		return nil, fmt.Errorf("BAR%d resource file is empty", barIndex)
 	}
@@ -182,12 +195,9 @@ func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([
 		readSize = maxSize
 	}
 
-	// Hard safety cap: some devices report very large BAR sizes in sysfs (hundreds
-	// of MB+). Reading the full region via MMIO is extremely slow and makes the
-	// tool appear to freeze. 64KB is sufficient for the register snapshot used by
-	// the emulation models.
-	if readSize > 65536 {
-		readSize = 65536
+	if nvme {
+		// No bulk-read fallback: every live access must obey the same whitelist.
+		return readNVMeBARViaMmap(f, barIndex, readSize)
 	}
 
 	// Try mmap first - works with vfio-pci bound devices
@@ -198,6 +208,21 @@ func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([
 
 	// Fallback to read() - works for regular files (e.g. in tests)
 	return sr.readBARViaRead(f, barIndex, readSize)
+}
+
+func readNVMeBARViaMmap(f *os.File, barIndex, size int) ([]byte, error) {
+	if barIndex != 0 || size < baraccess.NVMeSnapshotSize {
+		return baraccess.ReadNVMe(barIndex, size, nil) // rejects before any access
+	}
+	mapped, err := syscall.Mmap(int(f.Fd()), 0, baraccess.NVMeSnapshotSize,
+		syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return nil, fmt.Errorf("NVMe BAR0 mmap failed (no blind fallback): %w", err)
+	}
+	defer syscall.Munmap(mapped)
+	return baraccess.ReadNVMe(barIndex, size, func(off int) (uint32, error) {
+		return baraccess.Load32(mapped, off)
+	})
 }
 
 // readBARViaMmap reads BAR contents via mmap (preferred for vfio-pci).

@@ -22,6 +22,9 @@ type SVPatcher struct {
 	ids     firmware.DeviceIDs
 	srcDir  string // path to board's src/ directory
 	results []PatchResult
+
+	ShadowConfig bool
+	MSIXCapDword int
 }
 
 func NewSVPatcher(ids firmware.DeviceIDs, srcDir string) *SVPatcher {
@@ -70,11 +73,129 @@ func (p *SVPatcher) PatchAll() error {
 		return fmt.Errorf("patching pcileech_fifo.sv: %w", err)
 	}
 
+	if p.ShadowConfig {
+		if err := p.patchShadowConfigSpace(); err != nil {
+			return fmt.Errorf("patching shadow config space: %w", err)
+		}
+		if err := p.validateShadowConfigPatch(); err != nil {
+			return err
+		}
+	}
+
 	// Validate that critical patches were applied
 	if err := p.validatePatchResults(); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (p *SVPatcher) patchShadowConfigSpace() error {
+	shadowFile := "pcileech_tlps128_cfgspace_shadow.sv"
+	shadowData, err := os.ReadFile(filepath.Join(p.srcDir, shadowFile))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(shadowData), "o_msix_enable") {
+		patches := []svRegexPatch{
+			{
+				pattern: `(module\s+pcileech_tlps128_cfgspace_shadow)\s*\(\s*\r?\n`,
+				replacement: "${1} #(\n" +
+					fmt.Sprintf("    parameter [9:0]         MSIX_CAP_DWORD = 10'h%03X\n", p.MSIXCapDword) +
+					")(\n",
+				label: "shadow: add MSI-X Message Control snoop parameter",
+			},
+			{
+				pattern:     `(IfShadow2Fifo\.shadow\s+dshadow2fifo)(\s*\r?\n\);)`,
+				replacement: "${1},\n    output reg              o_msix_enable,\n    output reg              o_msix_fmask${2}",
+				label:       "shadow: add MSI-X enable outputs",
+			},
+			{
+				pattern: `(wire \[15:0\]\s+pcie_rx_reqid\s*=\s*tlps_in\.tdata\[63:48\];[ \t]*\r?\n)`,
+				replacement: "${1}\n" +
+					"    wire msix_mc_wr = pcie_rx_wren & dshadow2fifo.cfgtlp_en &\n" +
+					"                      (pcie_rx_addr == MSIX_CAP_DWORD) & pcie_rx_be[0];\n" +
+					"\n" +
+					"    always @(posedge clk_pcie) begin\n" +
+					"        if (rst) begin\n" +
+					"            o_msix_enable <= 1'b0;\n" +
+					"            o_msix_fmask  <= 1'b0;\n" +
+					"        end else if (msix_mc_wr) begin\n" +
+					"            o_msix_enable <= pcie_rx_data[7];\n" +
+					"            o_msix_fmask  <= pcie_rx_data[6];\n" +
+					"        end\n" +
+					"    end\n",
+				label: "shadow: latch MSI-X enable and function mask",
+			},
+		}
+		if err := p.patchFile(shadowFile, patches); err != nil {
+			return err
+		}
+	}
+
+	tlpFile := "pcileech_pcie_tlp_a7.sv"
+	tlpData, err := os.ReadFile(filepath.Join(p.srcDir, tlpFile))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(tlpData), "shadow_msix_enable") {
+		patches := []svRegexPatch{
+			{
+				pattern:     `(IfAXIS128 tlps_dma\(\);)`,
+				replacement: "${1}\n\n    wire shadow_msix_enable;\n    wire shadow_msix_fmask;",
+				label:       "tlp: declare shadow MSI-X wires",
+			},
+			{
+				pattern:     `(\.tlps_cfg_rsp\s*\(\s*tlps_cfg_rsp\.source\s*\))(\s*\r?\n\s*\);)`,
+				replacement: "${1},\n        .o_msix_enable  ( shadow_msix_enable            ),\n        .o_msix_fmask   ( shadow_msix_fmask             )${2}",
+				label:       "tlp: wire shadow MSI-X enable outputs",
+			},
+			{
+				pattern:     `(\.cfg_msix_enable\s*\(\s*ctx\.cfg_interrupt_msixenable\s*)(\)\s*,)`,
+				replacement: "${1}| shadow_msix_enable ${2}",
+				label:       "tlp: OR shadow MSI-X enable into interrupt controller",
+			},
+			{
+				pattern:     `(\.cfg_msix_function_mask\s*\(\s*ctx\.cfg_interrupt_msixfm\s*)(\)\s*,)`,
+				replacement: "${1}| shadow_msix_fmask  ${2}",
+				label:       "tlp: OR shadow MSI-X function mask into interrupt controller",
+			},
+		}
+		if err := p.patchFile(tlpFile, patches); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *SVPatcher) validateShadowConfigPatch() error {
+	shadowData, err := os.ReadFile(filepath.Join(p.srcDir, "pcileech_tlps128_cfgspace_shadow.sv"))
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"o_msix_enable", "o_msix_fmask", "MSIX_CAP_DWORD"} {
+		if !strings.Contains(string(shadowData), want) {
+			return fmt.Errorf("shadow config space: pcileech_tlps128_cfgspace_shadow.sv is missing %q", want)
+		}
+	}
+
+	tlpData, err := os.ReadFile(filepath.Join(p.srcDir, "pcileech_pcie_tlp_a7.sv"))
+	if err != nil {
+		return err
+	}
+	tlp := string(tlpData)
+	checks := []*regexp.Regexp{
+		regexp.MustCompile(`ctx\.cfg_interrupt_msixenable\s*\|\s*shadow_msix_enable`),
+		regexp.MustCompile(`ctx\.cfg_interrupt_msixfm\s*\|\s*shadow_msix_fmask`),
+		regexp.MustCompile(`\.o_msix_enable\s*\(\s*shadow_msix_enable\s*\)`),
+		regexp.MustCompile(`\.o_msix_fmask\s*\(\s*shadow_msix_fmask\s*\)`),
+	}
+	for _, check := range checks {
+		if !check.MatchString(tlp) {
+			return fmt.Errorf("shadow config space: pcileech_pcie_tlp_a7.sv is missing %s", check)
+		}
+	}
 	return nil
 }
 

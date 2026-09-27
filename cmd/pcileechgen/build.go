@@ -27,6 +27,9 @@ type buildFlags struct {
 	stockBar      bool
 	behaviorRules string
 	force         bool
+	ila           bool
+	ilaDepth      int
+	shadowConfig  bool
 }
 
 var buildOpts buildFlags
@@ -84,15 +87,26 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		slog.Warn("donor largest BAR exceeds board BRAM (forced)", "donor_bar", donorDemand, "board_bram", boardBRAM)
 	}
 
+	ilaDepth := 0
+	if buildOpts.ila {
+		ilaDepth = buildOpts.ilaDepth
+		if ilaDepth <= 0 {
+			ilaDepth = firmware.DefaultILADepth
+		}
+		slog.Info("ILA debug core enabled", "depth", ilaDepth, "probes", len(firmware.ILAProbes()))
+	}
+
 	builder := vivado.NewBuilder(b, vivado.BuildOptions{
-		VivadoPath: buildOpts.vivadoPath,
-		OutputDir:  buildOpts.output,
-		LibDir:     buildOpts.libDir,
-		Jobs:       buildOpts.jobs,
-		Timeout:    buildOpts.timeout,
-		SkipVivado: buildOpts.skipVivado,
-		StockBar:   buildOpts.stockBar,
-		Force:      buildOpts.force,
+		VivadoPath:   buildOpts.vivadoPath,
+		OutputDir:    buildOpts.output,
+		LibDir:       buildOpts.libDir,
+		Jobs:         buildOpts.jobs,
+		Timeout:      buildOpts.timeout,
+		SkipVivado:   buildOpts.skipVivado,
+		StockBar:     buildOpts.stockBar,
+		Force:        buildOpts.force,
+		ILADepth:     ilaDepth,
+		ShadowConfig: buildOpts.shadowConfig,
 	})
 
 	return builder.Build(ctx)
@@ -176,6 +190,9 @@ func init() {
 	buildCmd.Flags().StringVar(&buildOpts.libDir, "lib-dir", "lib/pcileech-fpga", "path to pcileech-fpga library")
 	buildCmd.Flags().BoolVar(&buildOpts.stockBar, "stock-bar", false, "use stock bar controller (diagnostic: skip custom SV modules)")
 	buildCmd.Flags().BoolVar(&buildOpts.force, "force", false, "ignore donor BAR > board BRAM check")
+	buildCmd.Flags().BoolVar(&buildOpts.ila, "ila", false, "insert a Vivado ILA debug core probing BAR/TLP/interrupt signals")
+	buildCmd.Flags().BoolVar(&buildOpts.shadowConfig, "shadow-config", false, "route the full PCI config space through the shadow BRAM (variant B: 1:1 donor config space)")
+	buildCmd.Flags().IntVar(&buildOpts.ilaDepth, "ila-depth", firmware.DefaultILADepth, "ILA capture depth in samples (with --ila)")
 
 	_ = buildCmd.MarkFlagRequired("board")
 

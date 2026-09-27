@@ -70,9 +70,12 @@ func (c *Collector) Collect(bdf pci.BDF) (*DeviceContext, error) {
 	// One shared native-driver visit for the whole Collect() (see runNativeVisit):
 	// the BAR fallback and the NVMe identity capture reuse a single rebind cycle.
 	visit := &nativeVisitCache{bdf: bdf, bars: bars, nvme: isNVMeClass(ctx.Device.ClassCode)}
+	if visit.nvme {
+		slog.Info("NVMe safe BAR policy: baseline BAR0 DWORDs only; no doorbells, extended registers, other BARs or active probes")
+	}
 
 	ctx.BARContents = c.collectBARMemory(bdf, bars, visit)
-	ctx.BARProfiles = c.collectBARProfiles(bdf, bars, ctx.BARContents)
+	ctx.BARProfiles = c.collectBARProfiles(ctx.Device.ClassCode, bars, ctx.BARContents)
 	ctx.Capabilities = pci.ParseCapabilities(cs)
 	ctx.ExtCapabilities = pci.ParseExtCapabilities(cs)
 	ctx.MSIXData = c.collectMSIXData(cs, ctx.BARContents)
@@ -328,10 +331,7 @@ func (c *Collector) captureViaNativeDriver(bdf pci.BDF, bars []pci.BAR, nvme boo
 	}
 
 	for _, bar := range eligibleBARs(bars) {
-		readLen := int(bar.Size)
-		if readLen > maxBARReadSize {
-			readLen = maxBARReadSize
-		}
+		readLen := int(min(bar.Size, uint64(maxBARReadSize)))
 		data, readErr := c.readBARUntilValid(bdf, bar.Index, readLen)
 		if readErr != nil {
 			slog.Warn("native visit: BAR read failed", "bar", bar.Index, "error", readErr)
@@ -513,19 +513,15 @@ func (c *Collector) collectBARMemory(bdf pci.BDF, bars []pci.BAR, vc *nativeVisi
 }
 
 // readBARs reads eligible BARs via sysfs mmap, skipping already-valid entries.
-// Contents are capped to maxBARReadSize to avoid extremely slow/ hanging reads
-// on devices with large BAR apertures (hundreds of MB+). The low registers
-// needed for emulation are captured; higher areas are not required for the
-// initial snapshot.
+// Non-NVMe contents are capped to maxBARReadSize to limit slow reads.
+// ReadBARContent enforces the NVMe whitelist on every call, including retries
+// and captureViaNativeDriver; a size cap alone does not make MMIO safe.
 func (c *Collector) readBARs(bdf pci.BDF, eligible []pci.BAR, contents map[int][]byte) {
 	for _, bar := range eligible {
 		if data, ok := contents[bar.Index]; ok && !isAllFF(data) {
 			continue // already have valid data
 		}
-		readLen := int(bar.Size)
-		if readLen > maxBARReadSize {
-			readLen = maxBARReadSize
-		}
+		readLen := int(min(bar.Size, uint64(maxBARReadSize)))
 		data, err := c.sysfs.ReadBARContent(bdf, bar.Index, readLen)
 		if err != nil {
 			slog.Warn("could not read BAR via sysfs", "bar", bar.Index, "error", err)
@@ -539,21 +535,20 @@ func (c *Collector) readBARs(bdf pci.BDF, eligible []pci.BAR, contents map[int][
 	}
 }
 
-func (c *Collector) collectBARProfiles(bdf pci.BDF, bars []pci.BAR, barContents map[int][]byte) map[int]*BARProfile {
-	profiler := NewBARProfiler()
+func (c *Collector) collectBARProfiles(classCode uint32, bars []pci.BAR, barContents map[int][]byte) map[int]*BARProfile {
 	profiles := make(map[int]*BARProfile)
 
 	for _, bar := range eligibleBARs(bars) {
-		// don't probe unresponsive BARs, writes can brick the device
-		if data, ok := barContents[bar.Index]; ok && isAllFF(data) {
-			slog.Info("BAR profiling skipped: content is all 0xFF", "bar", bar.Index)
+		data := barContents[bar.Index]
+		if len(data) == 0 || isAllFF(data) {
+			slog.Info("BAR profiling skipped: no valid snapshot", "bar", bar.Index)
 			continue
 		}
 
-		resourcePath := fmt.Sprintf("%s/%s/resource%d", c.sysfs.basePath, bdf.String(), bar.Index)
-		profile, err := profiler.ProfileBAR(resourcePath, bar.Index, min(int(bar.Size), maxBARReadSize))
-		if err != nil {
-			slog.Info("BAR profiling skipped", "bar", bar.Index, "error", err)
+		// Reuse the collected RAM snapshot. A second live scan adds risk without
+		// discovering write semantics, even when the profiler is read-only.
+		profile := snapshotBARProfile(data, bar.Index, isNVMeClass(classCode))
+		if profile == nil {
 			continue
 		}
 		profiles[bar.Index] = profile

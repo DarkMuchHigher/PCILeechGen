@@ -30,11 +30,22 @@ func formatCOE(header string, words []uint32) string {
 
 // GenerateConfigSpaceCOE outputs 1024 DWORDs (4KB) for pcileech_cfgspace.coe.
 func GenerateConfigSpaceCOE(cs *pci.ConfigSpace) string {
+	return generateConfigSpaceCOE(cs, false)
+}
+
+func GenerateConfigSpaceCOEShadow(cs *pci.ConfigSpace) string {
+	return generateConfigSpaceCOE(cs, true)
+}
+
+func generateConfigSpaceCOE(cs *pci.ConfigSpace, swap bool) string {
 	words := make([]uint32, shadowCfgSpaceWords)
 
 	donorWords := cs.Size / 4
 	for i := 0; i < donorWords && i < shadowCfgSpaceWords; i++ {
 		words[i] = cs.ReadU32(i * 4)
+		if swap {
+			words[i] = bswap32(words[i])
+		}
 	}
 
 	return formatCOE(
@@ -45,10 +56,22 @@ func GenerateConfigSpaceCOE(cs *pci.ConfigSpace) string {
 	)
 }
 
+func bswap32(w uint32) uint32 {
+	return w<<24 | (w&0x0000FF00)<<8 | (w&0x00FF0000)>>8 | w>>24
+}
+
 // GenerateWritemaskCOE outputs the writemask COE (1=writable, 0=read-only).
 // Shadow BRAM is the sole read source under cfgtlp_zero=0, so masks match BAR
 // sizes (sizing probes return size-encoded values); identity regs stay read-only.
 func GenerateWritemaskCOE(cs *pci.ConfigSpace) string {
+	return generateWritemaskCOE(cs, false)
+}
+
+func GenerateWritemaskCOEShadow(cs *pci.ConfigSpace) string {
+	return generateWritemaskCOE(cs, true)
+}
+
+func generateWritemaskCOE(cs *pci.ConfigSpace, swap bool) string {
 	masks := make([]uint32, shadowCfgSpaceWords)
 
 	// 0x40-0xFF capabilities: fully writable. Locking here would desync shadow BRAM from the IP core.
@@ -93,6 +116,12 @@ func GenerateWritemaskCOE(cs *pci.ConfigSpace) string {
 	masks[13] = 0x00000000 // 0x34: CapPtr + reserved (read-only)
 	masks[14] = 0x00000000 // 0x38: reserved
 	masks[15] = 0x000000FF // 0x3C: IntLine writable, IntPin/MinGnt/MaxLat RO
+
+	if swap {
+		for i := range masks {
+			masks[i] = bswap32(masks[i])
+		}
+	}
 
 	return formatCOE(
 		"; PCILeechGen - Configuration Space Write Mask (4KB shadow)\n"+

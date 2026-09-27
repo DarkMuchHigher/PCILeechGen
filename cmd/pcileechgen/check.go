@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/sercanarga/pcileechgen/internal/board"
@@ -27,6 +26,10 @@ as a donor device with VFIO. Also shows board compatibility analysis.
 
 Example:
   pcileechgen check --bdf 0000:03:00.0`,
+	// A failing check is a diagnostic result, not a usage error: report the
+	// issues via the printed summary and a non-zero exit, without a usage dump.
+	SilenceUsage:  true,
+	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		bdf, err := pci.ParseBDF(checkDevice)
 		if err != nil {
@@ -52,6 +55,7 @@ type checker struct {
 func (c *checker) run() error {
 	fmt.Fprintf(c.w, "Checking device %s...\n\n", color.Bold(c.bdf.String()))
 
+	c.checkEnvironment()
 	c.checkDeviceInfo()
 	c.checkConfigSpace()
 	c.checkVFIO()
@@ -65,10 +69,23 @@ func (c *checker) run() error {
 	fmt.Fprintf(c.w, "\n%s\n", color.Header("Summary"))
 	if c.issues == 0 {
 		fmt.Fprintln(c.w, color.OK("Device is ready for firmware generation"))
-	} else {
-		fmt.Fprintln(c.w, color.Failf("%d issue(s) found - see above for details", c.issues))
+		return nil
 	}
-	return nil
+	fmt.Fprintln(c.w, color.Failf("%d issue(s) found - see above for details", c.issues))
+	// Non-zero exit so scripted "check && build" pipelines actually gate.
+	return fmt.Errorf("%d issue(s) found", c.issues)
+}
+
+func (c *checker) checkEnvironment() {
+	live, reason, err := vfio.CheckLiveEnvironment()
+	if err != nil {
+		fmt.Fprintln(c.w, color.Warnf("Host environment: unknown (%v)", err))
+		return
+	}
+	if live {
+		fmt.Fprintln(c.w, color.Failf("Host environment: live/USB Linux detected (%s); use an installed Linux system", reason))
+		c.issues++
+	}
 }
 
 func (c *checker) checkDeviceInfo() {
@@ -107,6 +124,13 @@ func (c *checker) checkVFIO() {
 	} else {
 		fmt.Fprintln(c.w, color.OK("VFIO modules loaded"))
 	}
+
+	if err := vfio.CheckMountedDeviceSafe(c.bdf.String()); err != nil {
+		fmt.Fprintln(c.w, color.Failf("Mounted-device safety: %v", err))
+		c.issues++
+	} else {
+		fmt.Fprintln(c.w, color.OK("Mounted-device safety check passed"))
+	}
 }
 
 func (c *checker) checkIOMMUGroup() {
@@ -118,23 +142,20 @@ func (c *checker) checkIOMMUGroup() {
 	fmt.Fprintln(c.w, color.Okf("IOMMU group: %d", group))
 
 	groupDevs, err := vfio.ListIOMMUGroupDevices(c.bdf.String())
-	if err != nil || len(groupDevs) <= 1 {
-		if err == nil {
-			fmt.Fprintln(c.w, color.OK("Device is alone in its IOMMU group"))
-		}
+	if err != nil {
+		fmt.Fprintln(c.w, color.Failf("IOMMU group devices: %v", err))
+		c.issues++
 		return
 	}
-
-	var others []string
-	for _, d := range groupDevs {
-		if d != c.bdf.String() {
-			others = append(others, d)
-		}
+	if err := vfio.CheckIOMMUGroupSafe(c.bdf.String()); err != nil {
+		fmt.Fprintln(c.w, color.Failf("IOMMU group safety: %v", err))
+		c.issues++
+		return
 	}
-	if len(others) > 0 {
-		fmt.Fprintln(c.w, color.Warnf("IOMMU group shared with %d device(s): %s",
-			len(others), strings.Join(others, ", ")))
-		fmt.Fprintln(c.w, color.Dim("  All devices in the group must be unbound or on vfio-pci"))
+	if len(groupDevs) <= 1 {
+		fmt.Fprintln(c.w, color.OK("Device is alone in its IOMMU group"))
+	} else {
+		fmt.Fprintln(c.w, color.Okf("All %d IOMMU group peer(s) are unbound or on vfio-pci", len(groupDevs)-1))
 	}
 }
 

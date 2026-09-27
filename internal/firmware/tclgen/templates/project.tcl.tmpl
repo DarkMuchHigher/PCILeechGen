@@ -100,6 +100,7 @@ if {[llength $all_ips] > 0} {
 }
 
 # Point BRAM IPs to the generated COE files (library defaults are all-zero)
+{{ .ILABlock }}
 set bar_bram [get_ips -quiet bram_bar_zero4k]
 # bram_bar_zero4k is a fixed 4KB (1024-dword) IP; skip donor COE when BAR0 > 4KB (content via SV) or stock-bar.
 if { $bar_bram != ""{{if or (gt .Bar0ByteSize 4096) .StockBar}} && 0{{end}} } {
@@ -234,3 +235,37 @@ current_run -implementation [get_runs impl_1]
 set_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE ExtraPostPlacementOpt [get_runs impl_1]
 
 puts "Project ${_xil_proj_name_} created successfully."
+{{if .ShadowConfig}}
+set _vb_ip [get_ips -quiet pcie_7x_0]
+if { $_vb_ip != "" } {
+  generate_target all $_vb_ip
+  set _vb_xci [get_files -quiet *pcie_7x_0.xci]
+  if { $_vb_xci != "" } {
+    set_property -name {GENERATE_SYNTH_CHECKPOINT} -value {false} -objects $_vb_xci
+    puts "VARIANT-B: GENERATE_SYNTH_CHECKPOINT=false"
+    set_property -name {IS_MANAGED} -value {false} -objects $_vb_xci
+    puts "VARIANT-B: IS_MANAGED=false"
+  } else {
+    puts "VARIANT-B: WARNING: pcie_7x_0.xci not found"
+  }
+  set _vb_ct [get_files -quiet *pcie_7x_0_core_top.v]
+  if { $_vb_ct == "" } {
+    set _vb_ct [glob -nocomplain "${origin_dir}/${_xil_proj_name_}/${_xil_proj_name_}.srcs/sources_1/ip/pcie_7x_0/source/pcie_7x_0_core_top.v"]
+  }
+  if { $_vb_ct != "" } {
+    set _vb_fh [open $_vb_ct r]
+    set _vb_data [read $_vb_fh]
+    close $_vb_fh
+    regsub {parameter \[5:0\]\s+EXT_CFG_CAP_PTR\s*=\s*6'h[0-9a-fA-F]+} $_vb_data {parameter [5:0]   EXT_CFG_CAP_PTR = 6'h01} _vb_data
+    regsub {parameter \[9:0\]\s+EXT_CFG_XP_CAP_PTR\s*=\s*10'h[0-9a-fA-F]+} $_vb_data {parameter [9:0]   EXT_CFG_XP_CAP_PTR = 10'h001} _vb_data
+    set _vb_fh [open $_vb_ct w]
+    puts -nonewline $_vb_fh $_vb_data
+    close $_vb_fh
+    puts "VARIANT-B: core_top patched ($_vb_ct)"
+  } else {
+    puts "VARIANT-B: WARNING: pcie_7x_0_core_top.v not found"
+  }
+} else {
+  puts "VARIANT-B: WARNING: pcie_7x_0 IP not found"
+}
+{{end}}

@@ -386,6 +386,7 @@
 
     assign intr_req = 1'b0{{ if and (eq .DeviceClass "audio") .HasClassEndpoint }} | hda_intr_req{{ end }}{{ if and (eq .DeviceClass "nvme") .NVMeIdentify (not .MSIXConfig) }} | nvme_intr_req{{ end }};
 
+{{ .ILAInstanceSV }}
 endmodule
 `default_nettype wire
 {{end}}

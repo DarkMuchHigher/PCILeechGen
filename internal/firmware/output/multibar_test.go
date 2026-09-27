@@ -217,7 +217,7 @@ func TestGenerateProjectTCLWithConfigPreservesSparseBARTopology(t *testing.T) {
 	}
 	b := &board.Board{Name: "Test", FPGAPart: "xc7a35tfgg484-2", PCIeLanes: 1, TopModule: "test_top", BRAMSize: 0x200000}
 
-	tcl := tclgen.GenerateProjectTCLWithConfig(ctx, b, "/tmp/lib", false, cfg)
+	tcl := tclgen.GenerateProjectTCLWithConfig(ctx, b, "/tmp/lib", false, cfg, 0)
 	for bir, enabled := range []bool{true, false, true, false, false, true} {
 		want := "CONFIG.Bar" + string(rune('0'+bir)) + "_Enabled "
 		if enabled {

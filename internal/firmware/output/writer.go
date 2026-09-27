@@ -22,12 +22,14 @@ import (
 
 // OutputWriter drops all generated files into OutputDir.
 type OutputWriter struct {
-	OutputDir string
-	LibDir    string
-	Jobs      int
-	Timeout   int
-	StockBar  bool
-	Force     bool
+	OutputDir    string
+	LibDir       string
+	Jobs         int
+	Timeout      int
+	StockBar     bool
+	Force        bool
+	ILADepth     int
+	ShadowConfig bool
 }
 
 const outputOwnershipMarker = ".pcileechgen-output-v1"
@@ -115,6 +117,14 @@ func (ow *OutputWriter) writeAllPrepared(ctx *donor.DeviceContext, b *board.Boar
 	ctx.Device.VendorID = scrubbedCS.VendorID()
 	ctx.Device.DeviceID = scrubbedCS.DeviceID()
 	ctx.Device.ClassCode = scrubbedCS.ReadU32(0x08) >> 8
+
+	msixTableSize := 0
+	if ctx.MSIXData != nil && ctx.MSIXData.TableSize > 0 {
+		msixTableSize = ctx.MSIXData.TableSize
+	}
+	scrub.ScrubBarContent(ctx.BARContents, ctx.Device.ClassCode, ctx.Device.VendorID,
+		firmware.CappedBAR0Size(ctx, b, msixTableSize))
+
 	var svCfg *svgen.SVGeneratorConfig
 	if !ow.StockBar {
 		var err error
@@ -139,8 +149,12 @@ func (ow *OutputWriter) writeAllPrepared(ctx *donor.DeviceContext, b *board.Boar
 		return err
 	}
 
-	if err := ow.patchSVSources(b, ids); err != nil {
+	if err := ow.patchSVSources(b, ids, scrubbedCS); err != nil {
 		return fmt.Errorf("SV patching failed: %w", err)
+	}
+
+	if err := ow.copyBoardIPFiles(b); err != nil {
+		return fmt.Errorf("staging board IP cores failed: %w", err)
 	}
 
 	if !ow.StockBar {
@@ -157,6 +171,8 @@ func (ow *OutputWriter) writeAllPrepared(ctx *donor.DeviceContext, b *board.Boar
 			slog.Warn("failed to write diff report", "error", err)
 		}
 	}
+
+	ow.writeCode10Report(ctx, b, ids)
 
 	if err := writeBuildManifest(ow.OutputDir, ctx, b, false); err != nil {
 		return fmt.Errorf("failed to write build manifest: %w", err)
@@ -447,18 +463,23 @@ func (ow *OutputWriter) scrubAndVary(ctx *donor.DeviceContext, b *board.Board, i
 	varSeed := variance.BuildVarianceSeed(ids.VendorID, ids.DeviceID, entropy)
 	varCfg := variance.DefaultConfig(varSeed)
 	varCfg.DonorHasDSN = ids.HasDSN
+	if ow.ShadowConfig {
+		varCfg.MutateDSN = false
+	}
 	variance.Apply(scrubbedCS, nil, varCfg)
 
 	return scrubbedCS, entropy, overlayMap
 }
 
 func (ow *OutputWriter) writeConfigSpaceArtifacts(ctx *donor.DeviceContext, scrubbedCS *pci.ConfigSpace, b *board.Board) error {
-	if err := ow.writeFile("pcileech_cfgspace.coe",
-		codegen.GenerateConfigSpaceCOE(scrubbedCS)); err != nil {
+	genCfgCOE, genWritemaskCOE := codegen.GenerateConfigSpaceCOE, codegen.GenerateWritemaskCOE
+	if ow.ShadowConfig {
+		genCfgCOE, genWritemaskCOE = codegen.GenerateConfigSpaceCOEShadow, codegen.GenerateWritemaskCOEShadow
+	}
+	if err := ow.writeFile("pcileech_cfgspace.coe", genCfgCOE(scrubbedCS)); err != nil {
 		return fmt.Errorf("failed to write cfgspace COE: %w", err)
 	}
-	if err := ow.writeFile("pcileech_cfgspace_writemask.coe",
-		codegen.GenerateWritemaskCOE(scrubbedCS)); err != nil {
+	if err := ow.writeFile("pcileech_cfgspace_writemask.coe", genWritemaskCOE(scrubbedCS)); err != nil {
 		return fmt.Errorf("failed to write writemask COE: %w", err)
 	}
 
@@ -466,14 +487,47 @@ func (ow *OutputWriter) writeConfigSpaceArtifacts(ctx *donor.DeviceContext, scru
 	if ctx.MSIXData != nil && ctx.MSIXData.TableSize > 0 {
 		msixTableSize = ctx.MSIXData.TableSize
 	}
-	bar0Size := firmware.CappedBAR0Size(ctx, b, msixTableSize)
-
-	scrub.ScrubBarContent(ctx.BARContents, ctx.Device.ClassCode, ctx.Device.VendorID, bar0Size)
 	if err := ow.writeFile("pcileech_bar_zero4k.coe",
 		codegen.GenerateBarContentCOE(ctx.BARContents, firmware.CappedBAR0Size(ctx, b, msixTableSize))); err != nil {
 		return fmt.Errorf("failed to write bar zero COE: %w", err)
 	}
 	return nil
+}
+
+func (ow *OutputWriter) copyBoardIPFiles(b *board.Board) error {
+	srcDir := b.IPPath(ow.LibDir)
+	entries, err := os.ReadDir(srcDir)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect board IP dir %s: %w", srcDir, err)
+	}
+	dstDir := filepath.Join(ow.OutputDir, "ip")
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return fmt.Errorf("create IP staging dir %s: %w", dstDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(srcDir, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("read board IP %s: %w", entry.Name(), err)
+		}
+		if err := writeRegularFile(filepath.Join(dstDir, entry.Name()), data); err != nil {
+			return fmt.Errorf("stage board IP %s: %w", entry.Name(), err)
+		}
+	}
+	return nil
+}
+
+func msixCapDword(cs *pci.ConfigSpace) int {
+	for _, cap := range pci.ParseCapabilities(cs) {
+		if cap.ID == pci.CapIDMSIX {
+			return cap.Offset / 4
+		}
+	}
+	return -1
 }
 
 // writeTCLScripts generates Vivado project and build TCL scripts.
@@ -483,12 +537,17 @@ func (ow *OutputWriter) writeTCLScripts(ctx *donor.DeviceContext, b *board.Board
 		cfg = configs[0]
 	}
 	if err := ow.writeFile("vivado_generate_project.tcl",
-		tclgen.GenerateProjectTCLWithConfig(ctx, b, ow.LibDir, ow.StockBar, cfg)); err != nil {
+		tclgen.GenerateProjectTCLWithConfig(ctx, b, ow.LibDir, ow.StockBar, cfg, ow.ILADepth)); err != nil {
 		return fmt.Errorf("failed to write project TCL: %w", err)
 	}
 	if err := ow.writeFile("vivado_build.tcl",
 		tclgen.GenerateBuildTCL(b, ow.Jobs, ow.Timeout)); err != nil {
 		return fmt.Errorf("failed to write build TCL: %w", err)
+	}
+	if ow.ILADepth > 0 {
+		if err := ow.writeFile("ila_debug.txt", firmware.ILADebugDoc()); err != nil {
+			return fmt.Errorf("failed to write ILA debug doc: %w", err)
+		}
 	}
 	return nil
 }
@@ -543,6 +602,8 @@ func ListOutputFiles() []string {
 		"config_space_init.hex",
 		"msix_table_init.hex",
 		"scrub_diff_report.txt",
+		"code10_report.txt",
+		"ila_debug.txt",
 		"build_manifest.json",
 	}
 }

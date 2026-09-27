@@ -219,6 +219,11 @@ func (ow *OutputWriter) buildSVConfig(ctx *donor.DeviceContext, scrubbedCS *pci.
 		MaxPayloadBytes:             128,
 		BehaviorRules:               ctx.BehaviorRules,
 		CompiledBehavior:            compiledRules,
+		ShadowConfig:                ow.ShadowConfig,
+	}
+	if ow.ILADepth > 0 {
+		cfg.ILAInstanceSV = firmware.ILAInstanceSV()
+		cfg.HASILA = true
 	}
 	if primary == nil {
 		cfg.LatencyConfig = nil

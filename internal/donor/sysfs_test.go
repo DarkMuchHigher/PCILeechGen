@@ -413,6 +413,7 @@ func TestProfileBAR_InvalidPath(t *testing.T) {
 
 func TestBARProfilerDefaultsToReadOnlySnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "resource0")
+	writeFile(t, filepath.Dir(path), "class", "0x020000\n")
 	want := make([]byte, os.Getpagesize())
 	binary.LittleEndian.PutUint32(want[0:4], 0x12345678)
 	binary.LittleEndian.PutUint32(want[4:8], 0xaabbccdd)

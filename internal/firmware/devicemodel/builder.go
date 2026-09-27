@@ -6,6 +6,8 @@ import (
 	"sort"
 
 	"github.com/sercanarga/pcileechgen/internal/donor"
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
+	"github.com/sercanarga/pcileechgen/internal/firmware/devclass"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 )
 
@@ -189,7 +191,23 @@ func buildRegisters(ctx *donor.DeviceContext) []Register {
 		probes := append([]donor.BARProbeResult(nil), profile.Probes...)
 		sort.Slice(probes, func(i, j int) bool { return probes[i].Offset < probes[j].Offset })
 		for _, probe := range probes {
-			regs = append(regs, registerFromProbe(index, probe, ctx.BARContents[index]))
+			readOnlyNVMe := profile.ReadPolicy == baraccess.NVMeReadPolicy && devclass.IsNVMe(ctx.Device.ClassCode)
+			if readOnlyNVMe {
+				// Only the value was measured. Access masks come from the existing
+				// controller spec profile, not from zero-valued probe masks.
+				probe.RWMask, probe.W1CMask, probe.MaybeRW1C = 0, 0, false
+				for _, def := range devclass.ProfileForClass(ctx.Device.ClassCode).BARDefaults {
+					if def.Offset == probe.Offset {
+						probe.RWMask, probe.W1CMask = def.RWMask, def.W1CMask
+						break
+					}
+				}
+			}
+			reg := registerFromProbe(index, probe, ctx.BARContents[index])
+			if readOnlyNVMe {
+				reg.Confidence = ConfidenceInferred
+			}
+			regs = append(regs, reg)
 		}
 	}
 	return regs
@@ -295,11 +313,17 @@ func buildUnsupported(caps []pci.ExtCapability) []UnsupportedFeature {
 func buildConfidence(ctx *donor.DeviceContext) Confidence {
 	level := ConfidenceInferred
 	evidence := []string{"configuration space captured from donor"}
-	if len(ctx.BARProfiles) > 0 {
+	measuredAccess := false
+	for _, profile := range ctx.BARProfiles {
+		if profile != nil && profile.ReadPolicy == "" && len(profile.Probes) > 0 {
+			measuredAccess = true
+		}
+	}
+	if measuredAccess {
 		level = ConfidenceMeasured
 		evidence = append(evidence, "BAR access behavior measured by probe")
 	} else if len(ctx.BARContents) > 0 {
-		evidence = append(evidence, "BAR reset images captured without access probing")
+		evidence = append(evidence, "BAR values captured without access probing; access behavior is not measured")
 	}
 	return Confidence{Overall: level, Evidence: evidence}
 }

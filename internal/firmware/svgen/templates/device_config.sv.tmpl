@@ -71,6 +71,7 @@ package device_config;
     localparam HAS_XHCI_FSM     = {{ if eq .DeviceClass "xhci" }}1{{ else }}0{{ end }};
     localparam HAS_AUDIO_FSM    = {{ if eq .DeviceClass "audio" }}1{{ else }}0{{ end }};
     localparam HAS_MSIX_INT     = {{ if .HasMSIX }}1{{ else }}0{{ end }};
+    localparam HAS_ILA          = {{ if .HASILA }}1{{ else }}0{{ end }};
     localparam HAS_DONOR_PM_CAP   = {{ if .DonorCapabilities.HasPMCap }}1{{ else }}0{{ end }};
     localparam HAS_DONOR_MSI_CAP  = {{ if .DonorCapabilities.HasMSICap }}1{{ else }}0{{ end }};
     localparam HAS_DONOR_MSIX_CAP = {{ if .DonorCapabilities.HasMSIXCap }}1{{ else }}0{{ end }};

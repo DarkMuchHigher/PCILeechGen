@@ -10,6 +10,7 @@ import (
 	"github.com/sercanarga/pcileechgen/internal/board"
 	"github.com/sercanarga/pcileechgen/internal/firmware"
 	"github.com/sercanarga/pcileechgen/internal/firmware/svgen"
+	"github.com/sercanarga/pcileechgen/internal/pci"
 )
 
 // svFilesReplacedByGenerator: board source files we replace with
@@ -31,7 +32,7 @@ var barControllerSubModules = []string{
 
 // patchSVSources copies the board's SV tree (excluding files that will
 // be regenerated), and patches donor IDs into the remaining sources.
-func (ow *OutputWriter) patchSVSources(b *board.Board, ids firmware.DeviceIDs) error {
+func (ow *OutputWriter) patchSVSources(b *board.Board, ids firmware.DeviceIDs, scrubbedCS *pci.ConfigSpace) error {
 	srcDir := b.SrcPath(ow.LibDir)
 	dstDir := filepath.Join(ow.OutputDir, "src")
 
@@ -87,6 +88,14 @@ func (ow *OutputWriter) patchSVSources(b *board.Board, ids firmware.DeviceIDs) e
 	}
 
 	patcher := svgen.NewSVPatcher(ids, dstDir)
+	if ow.ShadowConfig {
+		capDword := msixCapDword(scrubbedCS)
+		if capDword < 0 {
+			return fmt.Errorf("shadow config space requires a donor MSI-X capability")
+		}
+		patcher.ShadowConfig = true
+		patcher.MSIXCapDword = capDword
+	}
 
 	if err := patcher.PatchAll(); err != nil {
 		return fmt.Errorf("failed to patch SV sources: %w", err)

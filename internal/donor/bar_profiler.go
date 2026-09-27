@@ -4,7 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
+
+	"github.com/sercanarga/pcileechgen/internal/donor/baraccess"
 )
 
 // BARProbeResult is one 4-byte register's probe output.
@@ -16,11 +19,13 @@ type BARProbeResult struct {
 	MaybeRW1C bool   `json:"maybe_rw1c"` // true if W1CMask != 0
 }
 
-// BARProfile is the full probe output for one BAR.
+// BARProfile holds captured registers for one BAR. Size is the snapshot extent,
+// not the hardware aperture. ReadPolicy identifies intentionally sparse reads.
 type BARProfile struct {
-	BarIndex int              `json:"bar_index"`
-	Size     int              `json:"size"`
-	Probes   []BARProbeResult `json:"probes"`
+	BarIndex   int              `json:"bar_index"`
+	Size       int              `json:"size"`
+	Probes     []BARProbeResult `json:"probes"`
+	ReadPolicy string           `json:"read_policy,omitempty"`
 }
 
 // BARProfiler reads BAR registers without writing by default.
@@ -33,8 +38,22 @@ func NewBARProfiler() *BARProfiler { return &BARProfiler{} }
 // NewActiveBARProfiler enables write/readback probing.
 func NewActiveBARProfiler() *BARProfiler { return &BARProfiler{active: true} }
 
-// ProfileBAR profiles each complete DWORD in a BAR.
+// ProfileBAR profiles a sysfs BAR. NVMe uses only the baseline BAR0 whitelist;
+// active NVMe probing is refused. PCI class metadata is required beside resourceN.
 func (p *BARProfiler) ProfileBAR(resourcePath string, barIndex, maxSize int) (*BARProfile, error) {
+	nvme, err := baraccess.ResourceIsNVMe(resourcePath)
+	if err != nil {
+		return nil, err
+	}
+	if maxSize <= 0 {
+		return nil, fmt.Errorf("BAR profile size must be positive")
+	}
+	if nvme && (barIndex != 0 || (p != nil && p.active)) {
+		return nil, fmt.Errorf("NVMe profiling permits only read-only baseline BAR0 registers")
+	}
+	if nvme && filepath.Base(resourcePath) != "resource0" {
+		return nil, fmt.Errorf("NVMe BAR0 profiling requires resource0, got %s", resourcePath)
+	}
 	flags := os.O_RDONLY
 	prot := syscall.PROT_READ
 	mode := "read-only"
@@ -54,12 +73,16 @@ func (p *BARProfiler) ProfileBAR(resourcePath string, barIndex, maxSize int) (*B
 		return nil, fmt.Errorf("failed to stat BAR%d: %w", barIndex, err)
 	}
 
-	size := int(fi.Size())
+	size := int(min(fi.Size(), int64(maxSize), int64(maxBARReadSize)))
 	if size == 0 {
 		return nil, fmt.Errorf("BAR%d resource file is empty", barIndex)
 	}
-	if size > maxSize {
-		size = maxSize
+	if nvme {
+		data, err := readNVMeBARViaMmap(f, barIndex, size)
+		if err != nil {
+			return nil, err
+		}
+		return snapshotBARProfile(data, barIndex, true), nil
 	}
 	// mmap needs page-aligned size
 	pageSize := os.Getpagesize()
@@ -87,6 +110,27 @@ func (p *BARProfiler) ProfileBAR(resourcePath string, barIndex, maxSize int) (*B
 	}
 
 	return profile, nil
+}
+
+// snapshotBARProfile consumes ordinary RAM only. NVMe holes never become
+// probes, and RW/W1C masks remain unknown (zero), not actively measured.
+func snapshotBARProfile(data []byte, barIndex int, nvme bool) *BARProfile {
+	profile := &BARProfile{BarIndex: barIndex, Size: len(data)}
+	if !nvme {
+		profile.Probes = snapshotRegisters(data, len(data))
+		return profile
+	}
+	if barIndex != 0 || len(data) < baraccess.NVMeSnapshotSize {
+		return nil
+	}
+	profile.Size = baraccess.NVMeSnapshotSize
+	profile.ReadPolicy = baraccess.NVMeReadPolicy
+	for _, off := range baraccess.NVMeOffsets() {
+		profile.Probes = append(profile.Probes, BARProbeResult{
+			Offset: uint32(off), Original: binary.LittleEndian.Uint32(data[off : off+4]),
+		})
+	}
+	return profile
 }
 
 func snapshotRegisters(mem []byte, size int) []BARProbeResult {

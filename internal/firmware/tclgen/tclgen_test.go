@@ -43,7 +43,7 @@ func TestGenerateProjectTCL(t *testing.T) {
 		BARs:            []pci.BAR{},
 	}
 
-	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false)
+	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false, 0)
 
 	if !strings.Contains(tcl, "8086") {
 		t.Error("TCL should contain vendor ID")
@@ -103,7 +103,7 @@ func TestGeneratedMultiBARTCLSourcesInTclsh(t *testing.T) {
 		BARModel:         bar0,
 	}
 	b := &board.Board{Name: "TclSyntax", FPGAPart: "xc7a35tfgg484-2", PCIeLanes: 1, TopModule: "test_top"}
-	generated := GenerateProjectTCLWithConfig(ctx, b, t.TempDir(), false, cfg)
+	generated := GenerateProjectTCLWithConfig(ctx, b, t.TempDir(), false, cfg, 0)
 	tclPath := filepath.Join(t.TempDir(), "vivado_generate_project.tcl")
 	if werr := os.WriteFile(tclPath, []byte(generated), 0644); werr != nil {
 		t.Fatal(werr)
@@ -148,7 +148,7 @@ func TestGenerateProjectTCL_ImportVFiles(t *testing.T) {
 		TopModule:    "pcileech_tbx4_100t_top",
 		ImportVFiles: true,
 	}
-	tclOn := GenerateProjectTCL(ctx, bOn, "/tmp/lib", false)
+	tclOn := GenerateProjectTCL(ctx, bOn, "/tmp/lib", false, 0)
 	if !strings.Contains(tclOn, "src/*.v") {
 		t.Error("ImportVFiles=true: TCL must glob src/*.v (board ships pcileech_com_e.v netlist)")
 	}
@@ -158,7 +158,7 @@ func TestGenerateProjectTCL_ImportVFiles(t *testing.T) {
 		FPGAPart:  "xc7a75tfgg484-2",
 		TopModule: "pcileech_75t484_x1_top",
 	}
-	tclOff := GenerateProjectTCL(ctx, bOff, "/tmp/lib", false)
+	tclOff := GenerateProjectTCL(ctx, bOff, "/tmp/lib", false, 0)
 	if strings.Contains(tclOff, "src/*.v") {
 		t.Error("ImportVFiles=false: TCL must NOT glob src/*.v")
 	}
@@ -264,7 +264,7 @@ func TestGenerateProjectTCL_ValidatesCode10Parameters(t *testing.T) {
 		},
 	}
 
-	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false)
+	tcl := GenerateProjectTCL(ctx, b, "/tmp/lib", false, 0)
 
 	checks := []struct {
 		param string
