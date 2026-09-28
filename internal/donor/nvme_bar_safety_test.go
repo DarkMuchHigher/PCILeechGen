@@ -78,7 +78,7 @@ func TestNVMeProfilerNoWritesOrDoorbells(t *testing.T) {
 			t.Fatalf("unexpected probe: %+v", p)
 		}
 	}
-	if _, err = NewActiveBARProfiler().ProfileBAR(path, 0, 65536); err == nil {
+	if _, err = newActiveBARProfiler().ProfileBAR(path, 0, 65536); err == nil {
 		t.Fatal("active NVMe probing permitted")
 	}
 	if _, err = NewBARProfiler().ProfileBAR(filepath.Join(dir, "resource2"), 2, 65536); err == nil {

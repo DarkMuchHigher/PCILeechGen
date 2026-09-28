@@ -139,10 +139,70 @@ func TestUnbindFromVFIO_InvalidDevice(t *testing.T) {
 	}
 }
 
+// stubMountedDeviceCheck points the mounted-device safety check at a fake
+// environment with a single tmpfs root mount, so it passes for any BDF.
+func stubMountedDeviceCheck(t *testing.T) {
+	t.Helper()
+	fakeInitialMountNamespace(t)
+	dir := t.TempDir()
+	oldMountInfo := mountInfoPath
+	mountInfoPath = filepath.Join(dir, "mountinfo")
+	t.Cleanup(func() { mountInfoPath = oldMountInfo })
+	if err := os.WriteFile(mountInfoPath,
+		[]byte("36 25 0:32 / / rw - tmpfs tmpfs rw\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnbindFromVFIO_RejectsMountedDevice(t *testing.T) {
+	fakeInitialMountNamespace(t)
+	tmpDir := t.TempDir()
+	sysRoot := filepath.Join(tmpDir, "sys")
+	SetSysfsBase(filepath.Join(sysRoot, "bus", "pci", "devices"))
+	defer ResetSysfsBase()
+
+	oldMountInfo, oldDevBlock := mountInfoPath, sysDevBlockBase
+	mountInfoPath = filepath.Join(tmpDir, "mountinfo")
+	sysDevBlockBase = filepath.Join(sysRoot, "dev", "block")
+	defer func() {
+		mountInfoPath, sysDevBlockBase = oldMountInfo, oldDevBlock
+	}()
+
+	bdf := "0000:03:00.0"
+	devDir := mkFakeDev(t, sysfsBase, bdf)
+	blockDir := filepath.Join(devDir, "nvme", "nvme0", "nvme0n1")
+	if err := os.MkdirAll(blockDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sysDevBlockBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(blockDir, filepath.Join(sysDevBlockBase, "259:0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mountInfoPath,
+		[]byte("36 25 259:0 / / rw,relatime - ext4 /dev/nvme0n1 rw\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	overridePath := filepath.Join(devDir, "driver_override")
+	if err := os.WriteFile(overridePath, []byte("vfio-pci\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := UnbindFromVFIO(bdf)
+	if err == nil || !containsStr(err.Error(), "mounted") {
+		t.Fatalf("UnbindFromVFIO() = %v, want mounted-device refusal", err)
+	}
+	if got, _ := os.ReadFile(overridePath); string(got) != "vfio-pci\n" {
+		t.Errorf("driver_override = %q, want untouched after refusal", got)
+	}
+}
+
 // driver_override must be cleared with "\n", not an empty write: kernfs ignores
 // zero-length writes, so "" leaves it pinned to vfio-pci and drivers_probe
 // re-binds vfio-pci instead of the native driver.
 func TestUnbindFromVFIO_ClearsDriverOverrideWithNewline(t *testing.T) {
+	stubMountedDeviceCheck(t)
 	tmpDir := t.TempDir()
 	SetSysfsBase(tmpDir)
 	defer ResetSysfsBase()
@@ -689,6 +749,7 @@ func TestResetDevice_WritesOne(t *testing.T) {
 // (4) issue a Function Level Reset BEFORE the reprobe, and (5) reprobe the native
 // driver — every probe-triggering write bounded by writeSysfsWithDeadline.
 func TestUnbindFromVFIO_FullFlow(t *testing.T) {
+	stubMountedDeviceCheck(t)
 	tmp := t.TempDir()
 	SetSysfsBase(tmp)
 	SetPciBusPath(tmp)

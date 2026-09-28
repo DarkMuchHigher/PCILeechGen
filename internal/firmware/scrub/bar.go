@@ -109,77 +109,48 @@ func xhciClampDBOFF(data []byte, capLen, maxSlots, bramSize int) int {
 	doorbellSize := (maxSlots + 1) * 4
 
 	if int(dboff)+doorbellSize > bramSize {
-		newDBOFF := bramSize - doorbellSize
-		if newDBOFF < 0 {
-			newDBOFF = capLen + 0x20
-		}
-		newDBOFF = newDBOFF & ^0x1F
-		if newDBOFF < capLen+0x20 {
-			// can't fit, shrink MaxSlots
-			available := bramSize - (capLen + 0x20)
-			if available < 8 {
-				available = 8
-			}
-			maxSlots = available/4 - 1
-			if maxSlots < 1 {
-				maxSlots = 1
-			}
-			doorbellSize = (maxSlots + 1) * 4
-			newDBOFF = bramSize - doorbellSize
-			if newDBOFF < 0 {
-				newDBOFF = capLen + 0x20
-			}
-			newDBOFF = newDBOFF & ^0x1F
-		}
+		newDBOFF, newSlots := xhciPlaceBlock(bramSize, capLen, maxSlots, 4)
 		util.WriteLE32(data, 0x14, uint32(newDBOFF))
+		maxSlots = newSlots
 	}
 	return maxSlots
+}
+
+// xhciPlaceBlock picks a 32-byte-aligned offset at or above capLen+0x20 that
+// leaves room for a unit-sized register block (doorbells, runtime registers),
+// shrinking the unit count when the block would not fit otherwise.
+func xhciPlaceBlock(bramSize, capLen, units, unitSize int) (offset, outUnits int) {
+	floor := (capLen + 0x20 + 0x1F) &^ 0x1F
+	for {
+		if units < 1 {
+			units = 1
+		}
+		size := (units + 1) * unitSize
+		off := (bramSize - size) &^ 0x1F
+		if off >= floor && off+size <= bramSize {
+			return off, units
+		}
+		if units <= 1 {
+			return floor, 1
+		}
+		units--
+	}
 }
 
 func xhciClampRTSOFF(data []byte, capLen, maxIntrs, bramSize int) int {
 	rtsoff := int(util.ReadLE32(data, 0x18) & ^uint32(0x1F))
 
-	if rtsoff > 0 && maxIntrs > 0 {
-		remaining := bramSize - rtsoff - 0x20
-		if remaining < 0x20 {
-			remaining = 0x20
-		}
-		maxFit := remaining / 0x20
-		if maxFit < 1 {
-			maxFit = 1
-		}
-		if maxIntrs > maxFit {
-			maxIntrs = maxFit
-		}
-	}
 	if maxIntrs < 1 {
 		maxIntrs = 1
 	}
-
 	runtimeSize := 0x20 + maxIntrs*0x20
-	if rtsoff+runtimeSize > bramSize {
-		newRTSOFF := capLen + 0x20
-		newRTSOFF = (newRTSOFF + 0x1F) & ^0x1F
-		if newRTSOFF+runtimeSize > bramSize {
-			newRTSOFF = bramSize - runtimeSize
-			newRTSOFF = newRTSOFF & ^0x1F
-		}
-		rtsoff = newRTSOFF
-		util.WriteLE32(data, 0x18, uint32(rtsoff))
-
-		remaining := bramSize - rtsoff - 0x20
-		if remaining < 0x20 {
-			remaining = 0x20
-		}
-		maxFit := remaining / 0x20
-		if maxFit < 1 {
-			maxFit = 1
-		}
-		if maxIntrs > maxFit {
-			maxIntrs = maxFit
-		}
+	if rtsoff > 0 && rtsoff+runtimeSize <= bramSize {
+		return maxIntrs
 	}
-	return maxIntrs
+
+	newRTSOFF, newIntrs := xhciPlaceBlock(bramSize, capLen, maxIntrs, 0x20)
+	util.WriteLE32(data, 0x18, uint32(newRTSOFF))
+	return newIntrs
 }
 
 func xhciClampPorts(capLen, maxPorts, bramSize int) int {

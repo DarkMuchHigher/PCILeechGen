@@ -79,6 +79,16 @@ func TestApply_NilLatency(t *testing.T) {
 	cfg := DefaultConfig(42)
 
 	Apply(cs, nil, cfg)
+
+	foundVSEC := false
+	for _, cap := range pci.ParseExtCapabilities(cs) {
+		if cap.ID == pci.ExtCapIDVendorSpecific {
+			foundVSEC = true
+		}
+	}
+	if !foundVSEC {
+		t.Error("Apply with nil latency must still embed the VSEC entropy cap")
+	}
 }
 
 func TestApply_ZeroJitter(t *testing.T) {
@@ -252,22 +262,36 @@ func TestEmbedVSECEntropy_WithExistingExtCaps(t *testing.T) {
 	updatedLTR := cs.ReadU32(0x140)
 	nextOff := int((updatedLTR >> 20) & 0xFFC)
 	if nextOff == 0 {
-		t.Skip("embedVSECEntropy didn't chain VSEC after LTR")
+		t.Fatal("embedVSECEntropy must chain VSEC after the last ext cap (LTR)")
 	}
 
-	if nextOff > 0 && nextOff < pci.ConfigSpaceSize {
-		vsecHeader := cs.ReadU32(nextOff)
-		if uint16(vsecHeader&0xFFFF) != pci.ExtCapIDVendorSpecific {
-			t.Errorf("VSEC at 0x%03x: ID = 0x%04x", nextOff, vsecHeader&0xFFFF)
-		}
+	if nextOff < 0x148 || nextOff+16 > pci.ConfigSpaceSize {
+		t.Fatalf("VSEC offset 0x%03x must be past AER+LTR and leave room for 16 bytes", nextOff)
+	}
+	vsecHeader := cs.ReadU32(nextOff)
+	if uint16(vsecHeader&0xFFFF) != pci.ExtCapIDVendorSpecific {
+		t.Errorf("VSEC at 0x%03x: ID = 0x%04x", nextOff, vsecHeader&0xFFFF)
+	}
+	if int((vsecHeader>>20)&0xFFC) != 0 {
+		t.Errorf("VSEC must terminate the ext cap chain, next = 0x%03x", (vsecHeader>>20)&0xFFC)
 	}
 }
 
 func TestEmbedVSECEntropy_SmallConfigSpace(t *testing.T) {
 	cs := pci.NewConfigSpace()
 	cs.Size = pci.ConfigSpaceLegacySize
+	before := cs.Clone()
+
 	embedVSECEntropy(cs, 42)
 
+	if cs.Size != pci.ConfigSpaceLegacySize {
+		t.Fatalf("legacy config space size changed to %d", cs.Size)
+	}
+	for i := 0; i < pci.ConfigSpaceLegacySize; i++ {
+		if cs.Data[i] != before.Data[i] {
+			t.Fatalf("legacy config space modified at 0x%03x", i)
+		}
+	}
 }
 
 func TestApplyTimingJitter(t *testing.T) {
@@ -482,7 +506,18 @@ func TestStripDSNExtCap_NoDSN(t *testing.T) {
 func TestStripDSNExtCap_SmallConfigSpace(t *testing.T) {
 	cs := pci.NewConfigSpace()
 	cs.Size = pci.ConfigSpaceLegacySize
+	before := cs.Clone()
+
 	stripDSNExtCap(cs)
+
+	if cs.Size != pci.ConfigSpaceLegacySize {
+		t.Fatalf("legacy config space size changed to %d", cs.Size)
+	}
+	for i := 0; i < pci.ConfigSpaceLegacySize; i++ {
+		if cs.Data[i] != before.Data[i] {
+			t.Fatalf("legacy config space modified at 0x%03x", i)
+		}
+	}
 }
 
 func TestApply_DonorHasDSN(t *testing.T) {

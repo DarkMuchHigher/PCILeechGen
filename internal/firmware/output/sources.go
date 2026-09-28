@@ -222,8 +222,17 @@ func writeRegularFile(path string, content []byte) error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect output file %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
 		return err
 	}
-	return nil
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("sync output file %s: %w", path, err)
+	}
+	return f.Close()
 }

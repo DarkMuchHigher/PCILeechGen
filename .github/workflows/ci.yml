@@ -106,13 +106,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # TODO: pin to a commit SHA (matching the other actions in this file) once
-      # a specific golangci-lint v2 release is chosen; `version: latest` tracks
-      # the newest v2 build and can shift default checks between runs.
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: latest
+          version: v2.14.0
 
   hdl-lint:
     name: HDL Lint (Verilator)

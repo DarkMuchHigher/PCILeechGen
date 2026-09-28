@@ -17,6 +17,18 @@ var (
 	sysDevBlockBase        = "/sys/dev/block"
 )
 
+// SetProcPaths overrides the /proc paths used by the environment checks (for testing).
+func SetProcPaths(mountInfo, cmdline string) {
+	mountInfoPath = mountInfo
+	procCmdlinePath = cmdline
+}
+
+// ResetProcPaths restores the default /proc paths.
+func ResetProcPaths() {
+	mountInfoPath = "/proc/self/mountinfo"
+	procCmdlinePath = "/proc/cmdline"
+}
+
 type BARStatus struct {
 	Index      int
 	Size       uint64

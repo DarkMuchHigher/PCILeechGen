@@ -51,6 +51,23 @@ func TestWriteFile(t *testing.T) {
 	}
 }
 
+func TestWriteRegularFileSyncsToDisk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artifact.coe")
+	content := []byte("memory_initialization_radix=16;\n")
+
+	if err := writeRegularFile(path, content); err != nil {
+		t.Fatalf("writeRegularFile failed: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(content) {
+		t.Errorf("content = %q, want %q", data, content)
+	}
+}
+
 func TestPrepareOutputDirCreatesOwnedOutput(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "generated-output")
 	ow := NewOutputWriter(target, "lib/pcileech-fpga", 4, 3600)
