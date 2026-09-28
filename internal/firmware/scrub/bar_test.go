@@ -214,6 +214,78 @@ func TestXhciClampDBOFF_VerySmallBRAM(t *testing.T) {
 	}
 }
 
+func TestXhciClampDBOFF_StaysAboveOperationalFloor(t *testing.T) {
+	// crafted donor BAR: 64-byte BRAM window, 8 slots; the doorbell array
+	// cannot fit and must still not overlap capability/operational registers
+	data := make([]byte, 4096)
+	util.WriteLE32(data, 0x14, 0x00001000)
+	capLen, bramSize := 0x20, 64
+
+	slots := xhciClampDBOFF(data, capLen, 8, bramSize)
+
+	dboff := int(util.ReadLE32(data, 0x14))
+	if dboff%0x20 != 0 {
+		t.Errorf("DBOFF = 0x%X, must stay 32-byte aligned", dboff)
+	}
+	if dboff < capLen+0x20 {
+		t.Errorf("DBOFF = 0x%X overlaps capability/operational registers (floor 0x%X)", dboff, capLen+0x20)
+	}
+	if slots < 1 {
+		t.Errorf("slots should be >= 1, got %d", slots)
+	}
+}
+
+func TestXhciClampRTSOFF_StaysAboveOperationalFloor(t *testing.T) {
+	// crafted donor BAR: 64-byte BRAM window; the runtime block cannot fit
+	// and must still not overlap capability/operational registers
+	data := make([]byte, 4096)
+	util.WriteLE32(data, 0x18, 0x00001000)
+	capLen, bramSize := 0x20, 64
+
+	intrs := xhciClampRTSOFF(data, capLen, 2, bramSize)
+
+	rtsoff := int(util.ReadLE32(data, 0x18))
+	if intrs < 1 {
+		t.Errorf("intrs should be >= 1, got %d", intrs)
+	}
+	if rtsoff%0x20 != 0 {
+		t.Errorf("RTSOFF = 0x%X, must stay 32-byte aligned", rtsoff)
+	}
+	if rtsoff < capLen+0x20 {
+		t.Errorf("RTSOFF = 0x%X overlaps capability/operational registers (floor 0x%X)", rtsoff, capLen+0x20)
+	}
+}
+
+func TestXhciClampRTSOFF_ShrinksIntrsToFitBRAM(t *testing.T) {
+	// 128-byte BRAM: fits floor + header + one interrupter, not four
+	data := make([]byte, 4096)
+	util.WriteLE32(data, 0x18, 0x00001000)
+	capLen, bramSize := 0x20, 128
+
+	intrs := xhciClampRTSOFF(data, capLen, 4, bramSize)
+
+	rtsoff := int(util.ReadLE32(data, 0x18))
+	runtimeSize := 0x20 + intrs*0x20
+	if rtsoff < capLen+0x20 || rtsoff%0x20 != 0 {
+		t.Errorf("RTSOFF = 0x%X, want aligned offset at/above 0x%X", rtsoff, capLen+0x20)
+	}
+	if rtsoff+runtimeSize > bramSize {
+		t.Errorf("runtime block 0x%X..0x%X exceeds BRAM 0x%X (intrs=%d)", rtsoff, rtsoff+runtimeSize, bramSize, intrs)
+	}
+}
+
+func TestXhciClampRTSOFF_ZeroRTSOFF(t *testing.T) {
+	data := make([]byte, 4096) // donor RTSOFF = 0
+	intrs := xhciClampRTSOFF(data, 0x20, 8, 4096)
+	if intrs < 1 {
+		t.Errorf("intrs should be >= 1, got %d", intrs)
+	}
+	rtsoff := int(util.ReadLE32(data, 0x18))
+	if rtsoff < 0x40 || rtsoff%0x20 != 0 {
+		t.Errorf("RTSOFF = 0x%X, must be relocated to an aligned offset at/above 0x40", rtsoff)
+	}
+}
+
 func TestXhciClampRTSOFF_FitsInBRAM(t *testing.T) {
 	data := make([]byte, 4096)
 	util.WriteLE32(data, 0x18, 0x00000200) // RTSOFF = 0x200
