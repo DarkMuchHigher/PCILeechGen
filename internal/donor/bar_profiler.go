@@ -33,8 +33,10 @@ type BARProfiler struct {
 
 func NewBARProfiler() *BARProfiler { return &BARProfiler{} }
 
-// NewActiveBARProfiler enables write/readback probing.
-func NewActiveBARProfiler() *BARProfiler { return &BARProfiler{active: true} }
+// newActiveBARProfiler enables write/readback probing. Test-only: wide
+// write probes over a live BAR are not a production code path, so the
+// constructor stays unexported. The NVMe refusal in ProfileBAR still applies.
+func newActiveBARProfiler() *BARProfiler { return &BARProfiler{active: true} }
 
 func (p *BARProfiler) ProfileBAR(resourcePath string, barIndex, maxSize int) (*BARProfile, error) {
 	nvme, err := baraccess.ResourceIsNVMe(resourcePath)
