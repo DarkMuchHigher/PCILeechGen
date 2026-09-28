@@ -423,6 +423,12 @@ func WakeToD0(bdf string) error {
 func UnbindFromVFIO(bdf string) error {
 	devPath := filepath.Join(sysfsBase, bdf)
 
+	// Rebinding the native driver reattaches storage/network the same way
+	// the initial bind detaches it; refuse to do that to mounted devices.
+	if err := CheckMountedDeviceSafe(bdf); err != nil {
+		return fmt.Errorf("unsafe native rebind: %w", err)
+	}
+
 	slog.Info("vfio: clearing driver_override", "bdf", bdf)
 	// Newline, not empty: kernfs ignores zero-length writes (echo "" > driver_override).
 	if err := os.WriteFile(filepath.Join(devPath, "driver_override"), []byte("\n"), 0200); err != nil {
