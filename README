@@ -65,7 +65,8 @@ QUICK START
   sudo ./bin/pcileechgen check --bdf 0000:02:00.0
   sudo ./bin/pcileechgen build --bdf 0000:02:00.0 --board CaptainDMA_100T
 
-  Run "check" before "build" to verify donor and board compatibility.
+  Run "check" first to preview donor and board compatibility; "build"
+  enforces the safety and BRAM gates itself, so it can be run directly.
   Full synthesis takes 30-60 minutes; add --skip-vivado for artifacts only.
 
 
@@ -76,7 +77,7 @@ COMMANDS
   build            generate firmware artifacts (+ Vivado)
   validate         verify artifacts match the donor context
   verify-manifest  check SHA256 integrity of build output
-  mmio-trace       capture live or import saved BAR MMIO access traces
+  mmio-trace       capture live (--live) or import saved BAR MMIO traces
   boards           list supported FPGA boards
   version          print version
 
@@ -84,7 +85,8 @@ COMMANDS
     --bdf <addr>       donor device BDF (required)
     --board <name>     target board (required)
     --skip-vivado      artifacts only, no synthesis
-    --force            allow donor BAR > board BRAM (may truncate)
+    --force            allow donor BAR > board BRAM, and live-donor
+                       collection on a live/USB-boot host (may truncate)
     --from-json <f>    offline build from saved device_context.json
     --output <dir>     output directory (default: pcileech_datastore)
 
