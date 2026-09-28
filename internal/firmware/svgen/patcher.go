@@ -238,14 +238,15 @@ func (p *SVPatcher) patchBarMirror() error {
 				label: "tlp: wire shadow BAR mirror outputs",
 			},
 		}
-		if err := p.patchFile(tlpFile, patches); err != nil {
+		if err = p.patchFile(tlpFile, patches); err != nil {
 			return err
 		}
 	}
 
+	var data []byte
 	for _, filename := range []string{"pcileech_pcie_a7.sv", "pcileech_pcie_a7x4.sv"} {
 		path := filepath.Join(p.srcDir, filename)
-		data, err := os.ReadFile(path)
+		data, err = os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -281,7 +282,7 @@ func (p *SVPatcher) patchBarMirror() error {
 				label: "services: connect BAR mirror from TLP wrapper",
 			},
 		}
-		if err := p.patchFile(filename, patches); err != nil {
+		if err = p.patchFile(filename, patches); err != nil {
 			return err
 		}
 	}
