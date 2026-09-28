@@ -216,15 +216,24 @@ func embedVSECEntropy(cs *pci.ConfigSpace, seed uint32) {
 		return
 	}
 
-	// find the last ext cap and the first free offset after it
+	// find the last ext cap and the first zero DWORD after it; the parser
+	// extends the last cap's Data to the end of config space, so len(Data)
+	// cannot be used as the cap's real length
 	extCaps := pci.ParseExtCapabilities(cs)
 	lastEnd := 0x100 // start of ext config
 	var lastCapOff int
 	for _, cap := range extCaps {
-		capEnd := cap.Offset + len(cap.Data)
-		if capEnd > lastEnd {
-			lastEnd = capEnd
+		if cap.Offset >= lastEnd {
+			lastEnd = cap.Offset + 4 // at least the header
 			lastCapOff = cap.Offset
+		}
+	}
+	if lastCapOff > 0 {
+		for off := lastEnd; off+4 <= pci.ConfigSpaceSize; off += 4 {
+			if cs.ReadU32(off) == 0 {
+				break
+			}
+			lastEnd = off + 4
 		}
 	}
 
