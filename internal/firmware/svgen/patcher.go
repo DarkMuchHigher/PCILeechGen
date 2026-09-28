@@ -77,6 +77,12 @@ func (p *SVPatcher) PatchAll() error {
 		if err := p.patchShadowConfigSpace(); err != nil {
 			return fmt.Errorf("patching shadow config space: %w", err)
 		}
+		if err := p.patchBarMirror(); err != nil {
+			return fmt.Errorf("patching BAR mirror: %w", err)
+		}
+		if err := p.validateBarMirror(); err != nil {
+			return err
+		}
 		if err := p.validateShadowConfigPatch(); err != nil {
 			return err
 		}
@@ -169,6 +175,203 @@ func (p *SVPatcher) patchShadowConfigSpace() error {
 	return nil
 }
 
+func (p *SVPatcher) patchBarMirror() error {
+	shadowFile := "pcileech_tlps128_cfgspace_shadow.sv"
+	shadowData, err := os.ReadFile(filepath.Join(p.srcDir, shadowFile))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(shadowData), "o_bar_wr_valid") {
+		patches := []svRegexPatch{
+			{
+				pattern: `(output reg\s+o_msix_fmask)(\s*\r?\n\);)`,
+				replacement: "${1},\n" +
+					"    output reg              o_bar_wr_valid,\n" +
+					"    output reg  [9:0]       o_bar_wr_dwaddr,\n" +
+					"    output reg  [31:0]      o_bar_wr_data${2}",
+				label: "shadow: add BAR mirror outputs",
+			},
+			{
+				pattern: `(wire \[15:0\]\s+pcie_rx_reqid\s*=\s*tlps_in\.tdata\[63:48\];[ \t]*\r?\n)`,
+				replacement: "${1}\n" +
+					"    wire bar_wr = pcie_rx_wren & dshadow2fifo.cfgtlp_en &\n" +
+					"                  ((pcie_rx_addr == 10'd4) | (pcie_rx_addr == 10'd5));\n" +
+					"\n" +
+					"    always @(posedge clk_pcie) begin\n" +
+					"        if (rst) begin\n" +
+					"            o_bar_wr_valid <= 1'b0;\n" +
+					"        end else begin\n" +
+					"            o_bar_wr_valid  <= bar_wr;\n" +
+					"            o_bar_wr_dwaddr <= pcie_rx_addr;\n" +
+					"            o_bar_wr_data   <= `_bs32(pcie_rx_data);\n" +
+					"        end\n" +
+					"    end\n",
+				label: "shadow: snoop BAR0/BAR1 writes",
+			},
+		}
+		if err = p.patchFile(shadowFile, patches); err != nil {
+			return err
+		}
+	}
+
+	tlpFile := "pcileech_pcie_tlp_a7.sv"
+	tlpData, err := os.ReadFile(filepath.Join(p.srcDir, tlpFile))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(tlpData), "bar_wr_valid") {
+		patches := []svRegexPatch{
+			{
+				pattern: `(module\s+pcileech_pcie_tlp_a7\s*\(\s*\r?\n)`,
+				replacement: "${1}" +
+					"    output wire             bar_wr_valid,\n" +
+					"    output wire [9:0]       bar_wr_dwaddr,\n" +
+					"    output wire [31:0]      bar_wr_data,\n",
+				label: "tlp: add BAR mirror ports",
+			},
+			{
+				pattern: `(\.o_msix_fmask\s*\(\s*shadow_msix_fmask\s*\))`,
+				replacement: "${1},\n" +
+					"        .o_bar_wr_valid ( bar_wr_valid                  ),\n" +
+					"        .o_bar_wr_dwaddr( bar_wr_dwaddr                 ),\n" +
+					"        .o_bar_wr_data  ( bar_wr_data                   )",
+				label: "tlp: wire shadow BAR mirror outputs",
+			},
+		}
+		if err := p.patchFile(tlpFile, patches); err != nil {
+			return err
+		}
+	}
+
+	for _, filename := range []string{"pcileech_pcie_a7.sv", "pcileech_pcie_a7x4.sv"} {
+		path := filepath.Join(p.srcDir, filename)
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), "bar_wr_valid") {
+			continue
+		}
+		patches := []svRegexPatch{
+			{
+				pattern: `(IfPCIeSignals\s+ctx\(\);\s*\r?\n)`,
+				replacement: "${1}" +
+					"    wire                    bar_wr_valid;\n" +
+					"    wire [9:0]              bar_wr_dwaddr;\n" +
+					"    wire [31:0]             bar_wr_data;\n",
+				label: "services: declare BAR mirror wires",
+			},
+			{
+				pattern: `(pcileech_pcie_cfg_a7\s+\w+\s*\(\s*\r?\n)`,
+				replacement: "${1}" +
+					"        .bar_wr_valid               ( bar_wr_valid              ),\n" +
+					"        .bar_wr_dwaddr              ( bar_wr_dwaddr             ),\n" +
+					"        .bar_wr_data                ( bar_wr_data               ),\n",
+				label: "services: connect BAR mirror to cfg wrapper",
+			},
+			{
+				pattern: `(pcileech_pcie_tlp_a7\s+\w+\s*\(\s*\r?\n)`,
+				replacement: "${1}" +
+					"        .bar_wr_valid               ( bar_wr_valid              ),\n" +
+					"        .bar_wr_dwaddr              ( bar_wr_dwaddr             ),\n" +
+					"        .bar_wr_data                ( bar_wr_data               ),\n",
+				label: "services: connect BAR mirror from TLP wrapper",
+			},
+		}
+		if err := p.patchFile(filename, patches); err != nil {
+			return err
+		}
+	}
+
+	cfgFile := "pcileech_pcie_cfg_a7.sv"
+	cfgData, err := os.ReadFile(filepath.Join(p.srcDir, cfgFile))
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(cfgData), "bar_wr_valid") {
+		patches := []svRegexPatch{
+			{
+				pattern: `(module\s+pcileech_pcie_cfg_a7\s*\(\s*\r?\n)`,
+				replacement: "${1}" +
+					"    input                   bar_wr_valid,\n" +
+					"    input       [9:0]       bar_wr_dwaddr,\n" +
+					"    input       [31:0]      bar_wr_data,\n",
+				label: "cfg: add BAR mirror ports",
+			},
+			{
+				pattern: `(reg\s+\[31:0\]\s+rwi_count_cfgspace_status_cl;\s*\r?\n)`,
+				replacement: "${1}\n" +
+					"    reg     [1:0]       rwi_bar_cnt;\n" +
+					"    reg     [9:0]       rwi_bar_dwaddr [0:1];\n" +
+					"    reg     [31:0]      rwi_bar_data   [0:1];\n",
+				label: "cfg: declare BAR mirror queue",
+			},
+			{
+				pattern:     `(rwi_cfg_mgmt_wr_en\s*<=\s*1'b0;\s*\r?\n)(\s*\r?\n\s*//\s*MAGIC\s*\r?\n)`,
+				replacement: "${1}            rwi_bar_cnt        <= 2'd0;\n${2}",
+				label:       "cfg: initialise BAR mirror queue",
+			},
+			{
+				pattern: `(assign\s+in_rden\s*=\s*tickcount64\[1\][^;]*;\s*\r?\n)`,
+				replacement: "${1}\n" +
+					"    wire bar_push = bar_wr_valid & (rwi_bar_cnt < 2'd2);\n" +
+					"    wire bar_pop  = (rwi_bar_cnt > 2'd0) & ~rw[RWPOS_CFG_RD_EN] & ~rw[RWPOS_CFG_WR_EN] &\n" +
+					"                    ~rwi_cfg_mgmt_rd_en & ~rwi_cfg_mgmt_wr_en & ~ctx.cfg_mgmt_rd_wr_done;\n",
+				label: "cfg: add BAR mirror queue control",
+			},
+			{
+				pattern:     `(\(rw\[RWPOS_CFG_CFGSPACE_STATUS_CL_EN\] \| rw\[RWPOS_CFG_CFGSPACE_COMMAND_EN\]\) & )~in_cmd_read`,
+				replacement: "${1}(rwi_bar_cnt == 2'd0) & ~bar_push & ~in_cmd_read",
+				label:       "cfg: hold status-clear while BAR write queued",
+			},
+			{
+				pattern: `(\s*//\s*STATIC_TLP TRANSMIT\s*\r?\n)`,
+				replacement: "\n" +
+					"                else if ( bar_pop )\n" +
+					"                    begin\n" +
+					"                        rwi_cfg_mgmt_wr_en  <= 1'b1;\n" +
+					"                        rwi_cfgrd_valid     <= 1'b0;\n" +
+					"                        rw[159:128]         <= rwi_bar_data[0];     // cfg_mgmt_di\n" +
+					"                        rw[169:160]         <= rwi_bar_dwaddr[0];   // cfg_mgmt_dwaddr\n" +
+					"                        rw[170]             <= 1'b1;                // cfg_mgmt_wr_readonly\n" +
+					"                        rw[171]             <= 1'b0;                // cfg_mgmt_wr_rw1c_as_rw\n" +
+					"                        rw[175:172]         <= 4'hf;                // cfg_mgmt_byte_en\n" +
+					"                    end\n" +
+					"\n" +
+					"                if ( bar_push && bar_pop ) begin\n" +
+					"                    if ( rwi_bar_cnt == 2'd1 ) begin\n" +
+					"                        rwi_bar_dwaddr[0] <= bar_wr_dwaddr;\n" +
+					"                        rwi_bar_data[0]   <= bar_wr_data;\n" +
+					"                    end else begin\n" +
+					"                        rwi_bar_dwaddr[0] <= rwi_bar_dwaddr[1];\n" +
+					"                        rwi_bar_data[0]   <= rwi_bar_data[1];\n" +
+					"                        rwi_bar_dwaddr[1] <= bar_wr_dwaddr;\n" +
+					"                        rwi_bar_data[1]   <= bar_wr_data;\n" +
+					"                    end\n" +
+					"                end else if ( bar_push ) begin\n" +
+					"                    rwi_bar_dwaddr[rwi_bar_cnt] <= bar_wr_dwaddr;\n" +
+					"                    rwi_bar_data[rwi_bar_cnt]   <= bar_wr_data;\n" +
+					"                    rwi_bar_cnt                 <= rwi_bar_cnt + 2'd1;\n" +
+					"                end else if ( bar_pop ) begin\n" +
+					"                    rwi_bar_dwaddr[0] <= rwi_bar_dwaddr[1];\n" +
+					"                    rwi_bar_data[0]   <= rwi_bar_data[1];\n" +
+					"                    rwi_bar_cnt       <= rwi_bar_cnt - 2'd1;\n" +
+					"                end\n" +
+					"${1}",
+				label: "cfg: replay BAR writes through cfg_mgmt",
+			},
+		}
+		if err = p.patchFile(cfgFile, patches); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (p *SVPatcher) validateShadowConfigPatch() error {
 	shadowData, err := os.ReadFile(filepath.Join(p.srcDir, "pcileech_tlps128_cfgspace_shadow.sv"))
 	if err != nil {
@@ -194,6 +397,76 @@ func (p *SVPatcher) validateShadowConfigPatch() error {
 	for _, check := range checks {
 		if !check.MatchString(tlp) {
 			return fmt.Errorf("shadow config space: pcileech_pcie_tlp_a7.sv is missing %s", check)
+		}
+	}
+	return nil
+}
+
+func (p *SVPatcher) validateBarMirror() error {
+	type check struct {
+		file  string
+		regex []string
+		want  []string
+	}
+	checks := []check{
+		{
+			file: "pcileech_tlps128_cfgspace_shadow.sv",
+			want: []string{"o_bar_wr_valid", "o_bar_wr_dwaddr", "o_bar_wr_data", "wire bar_wr"},
+		},
+		{
+			file: "pcileech_pcie_tlp_a7.sv",
+			regex: []string{
+				`output wire \[9:0\]\s+bar_wr_dwaddr`,
+				`\.o_bar_wr_valid\s*\(\s*bar_wr_valid\s*\)`,
+				`\.o_bar_wr_data\s*\(\s*bar_wr_data\s*\)`,
+			},
+		},
+		{
+			file: "pcileech_pcie_cfg_a7.sv",
+			want: []string{"rwi_bar_cnt", "bar_push", "bar_pop"},
+			regex: []string{
+				`input\s+\[9:0\]\s+bar_wr_dwaddr`,
+				`else if \( bar_pop \)`,
+				`rw\[169:160\]\s*<=\s*rwi_bar_dwaddr\[0\]`,
+			},
+		},
+	}
+
+	for _, c := range checks {
+		data, err := os.ReadFile(filepath.Join(p.srcDir, c.file))
+		if err != nil {
+			return err
+		}
+		content := string(data)
+		for _, want := range c.want {
+			if !strings.Contains(content, want) {
+				return fmt.Errorf("BAR mirror: %s is missing %q", c.file, want)
+			}
+		}
+		for _, pattern := range c.regex {
+			if !regexp.MustCompile(pattern).MatchString(content) {
+				return fmt.Errorf("BAR mirror: %s does not match %s", c.file, pattern)
+			}
+		}
+	}
+
+	for _, filename := range []string{"pcileech_pcie_a7.sv", "pcileech_pcie_a7x4.sv"} {
+		data, err := os.ReadFile(filepath.Join(p.srcDir, filename))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		content := string(data)
+		for _, pattern := range []string{
+			`wire \[9:0\]\s+bar_wr_dwaddr`,
+			`pcileech_pcie_cfg_a7\s+\w+\s*\(\s*\r?\n[\s\S]*?\.bar_wr_data\s*\(\s*bar_wr_data\s*\)`,
+			`pcileech_pcie_tlp_a7\s+\w+\s*\(\s*\r?\n[\s\S]*?\.bar_wr_data\s*\(\s*bar_wr_data\s*\)`,
+		} {
+			if !regexp.MustCompile(pattern).MatchString(content) {
+				return fmt.Errorf("BAR mirror: %s does not match %s", filename, pattern)
+			}
 		}
 	}
 	return nil
