@@ -74,7 +74,7 @@ func TestGenerateBarControllerSV_WiresNVMeDoorbellsAndDisk(t *testing.T) {
 	if declIdx < 0 {
 		t.Fatal("NVMe bar controller should declare wrengine_ready")
 	}
-	if instIdx < 0 || !(declIdx < instIdx) {
+	if instIdx < 0 || (declIdx >= instIdx) {
 		t.Fatalf("wrengine_ready must be declared before the wrengine instance (decl=%d inst=%d)", declIdx, instIdx)
 	}
 

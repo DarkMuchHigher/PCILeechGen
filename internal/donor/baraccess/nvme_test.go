@@ -10,8 +10,6 @@ import (
 )
 
 func TestReadNVMeExactAccesses(t *testing.T) {
-	// Independent expected list: changing the policy must not silently expand
-	// the regression test to include the same newly unsafe accesses.
 	want := []int{0, 4, 8, 0x0c, 0x10, 0x14, 0x1c, 0x24, 0x28, 0x2c, 0x30, 0x34}
 	var reads []int
 	data, err := ReadNVMe(0, 0x10000, func(off int) (uint32, error) {
@@ -98,7 +96,6 @@ func TestResourceClassFailsClosed(t *testing.T) {
 
 func TestLoad32BoundsAndWidth(t *testing.T) {
 	words := []uint32{0x12345678, 0xabcdef01}
-	// Use an aligned mapping surrogate, as the real mmap is page aligned.
 	data := make([]byte, 8)
 	for i, word := range words {
 		binary.LittleEndian.PutUint32(data[i*4:], word)

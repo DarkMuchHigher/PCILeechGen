@@ -60,13 +60,6 @@ func capSizeAt(cs *pci.ConfigSpace, id uint8, offset int) int {
 	return 8
 }
 
-// capSize returns the byte span a capability occupies. It prefers the exact
-// inter-capability extent that ParseCapabilities recorded in cap.Data, which is
-// accurate for any capability with a following link in the chain. The parser
-// sets the terminal capability's Data to run to the end of legacy config space
-// (offset+len == ConfigSpaceLegacySize), so that case falls back to the
-// conservative static size (capSizeAt) - preserving the trailing gap for
-// scrubbing and capability injection instead of claiming it for the last cap.
 func capSize(cs *pci.ConfigSpace, cap pci.Capability) int {
 	size := capSizeAt(cs, cap.ID, cap.Offset)
 	if d := len(cap.Data); d > size && cap.Offset+d < pci.ConfigSpaceLegacySize {

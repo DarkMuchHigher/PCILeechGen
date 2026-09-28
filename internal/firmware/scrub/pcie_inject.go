@@ -298,8 +298,8 @@ func injectMSIXCapIfMissing(cs *pci.ConfigSpace, om *overlay.Map, ctx *ScrubCont
 	om.WriteU8(capOffset, pci.CapIDMSIX, "inject MSI-X cap id")
 	om.WriteU8(capOffset+1, 0x00, "MSI-X cap next (end)")
 	om.WriteU16(capOffset+2, uint16(ctx.MSIXData.TableSize-1), "MSI-X Message Control (TableSize)")
-	om.WriteU32(capOffset+4, uint32(ctx.MSIXData.TableOffset)|uint32(ctx.MSIXData.TableBIR&0x7), "MSI-X Table Offset/BIR")
-	om.WriteU32(capOffset+8, uint32(ctx.MSIXData.PBAOffset)|uint32(ctx.MSIXData.PBABIR&0x7), "MSI-X PBA Offset/BIR")
+	om.WriteU32(capOffset+4, ctx.MSIXData.TableOffset|uint32(ctx.MSIXData.TableBIR&0x7), "MSI-X Table Offset/BIR")
+	om.WriteU32(capOffset+8, ctx.MSIXData.PBAOffset|uint32(ctx.MSIXData.PBABIR&0x7), "MSI-X PBA Offset/BIR")
 
 	lastCap := ctx.Caps[len(ctx.Caps)-1]
 	om.WriteU8(lastCap.Offset+1, uint8(capOffset), fmt.Sprintf("link cap at 0x%02X -> injected MSI-X at 0x%02X", lastCap.Offset, capOffset))

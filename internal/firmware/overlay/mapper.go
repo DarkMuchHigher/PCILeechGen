@@ -124,18 +124,18 @@ func (m *Map) FormatDiff() string {
 		return "No modifications.\n"
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("=== Config Space Overlay (%d changes) ===\n", len(m.entries)))
+	fmt.Fprintf(&sb, "=== Config Space Overlay (%d changes) ===\n", len(m.entries))
 	for _, e := range m.entries {
 		if e.Width > 4 {
 			// Range zero
-			sb.WriteString(fmt.Sprintf("  [%03X-%03X] zeroed (%d bytes) - %s\n",
-				e.Offset, e.Offset+e.Width-1, e.Width, e.Reason))
+			fmt.Fprintf(&sb, "  [%03X-%03X] zeroed (%d bytes) - %s\n",
+				e.Offset, e.Offset+e.Width-1, e.Width, e.Reason)
 		} else {
 			fmtStr := fmt.Sprintf("%%0%dX", e.Width*2)
 			oldStr := fmt.Sprintf(fmtStr, e.OldValue)
 			newStr := fmt.Sprintf(fmtStr, e.NewValue)
-			sb.WriteString(fmt.Sprintf("  [%03X] %s -> %s - %s\n",
-				e.Offset, oldStr, newStr, e.Reason))
+			fmt.Fprintf(&sb, "  [%03X] %s -> %s - %s\n",
+				e.Offset, oldStr, newStr, e.Reason)
 		}
 	}
 	return sb.String()

@@ -132,7 +132,7 @@ func (c *Collector) validateBARContents(ctx *DeviceContext) error {
 
 	if allMemoryBARsFF && barCriticalClass(ctx.Device.ClassCode) {
 		return fmt.Errorf(
-			"All %d eligible memory BAR(s) returned 0xFF for class 0x%06X (driver %q). "+
+			"all %d eligible memory BAR(s) returned 0xFF for class 0x%06X (driver %q). "+
 				"The device is not responding - possible causes:\n"+
 				"  • device is in D3 (sleep) power state\n"+
 				"  • IOMMU/VT-d not enabled or misconfigured\n"+
@@ -513,9 +513,6 @@ func (c *Collector) collectBARMemory(bdf pci.BDF, bars []pci.BAR, vc *nativeVisi
 }
 
 // readBARs reads eligible BARs via sysfs mmap, skipping already-valid entries.
-// Non-NVMe contents are capped to maxBARReadSize to limit slow reads.
-// ReadBARContent enforces the NVMe whitelist on every call, including retries
-// and captureViaNativeDriver; a size cap alone does not make MMIO safe.
 func (c *Collector) readBARs(bdf pci.BDF, eligible []pci.BAR, contents map[int][]byte) {
 	for _, bar := range eligible {
 		if data, ok := contents[bar.Index]; ok && !isAllFF(data) {
@@ -545,8 +542,6 @@ func (c *Collector) collectBARProfiles(classCode uint32, bars []pci.BAR, barCont
 			continue
 		}
 
-		// Reuse the collected RAM snapshot. A second live scan adds risk without
-		// discovering write semantics, even when the profiler is read-only.
 		profile := snapshotBARProfile(data, bar.Index, isNVMeClass(classCode))
 		if profile == nil {
 			continue

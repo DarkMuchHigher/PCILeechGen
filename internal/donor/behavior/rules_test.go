@@ -11,9 +11,8 @@ import (
 )
 
 func transitionTrace(polls int) *mmio.TraceResult {
-	records := []mmio.AccessRecord{
-		{BDF: "0000:03:00.0", BARIndex: 2, Address: 0xf7800020, Offset: 0x20, Width: 4, Type: mmio.AccessWrite, Value: 1, Timestamp: 0},
-	}
+	records := make([]mmio.AccessRecord, 0, polls+2)
+	records = append(records, mmio.AccessRecord{BDF: "0000:03:00.0", BARIndex: 2, Address: 0xf7800020, Offset: 0x20, Width: 4, Type: mmio.AccessWrite, Value: 1, Timestamp: 0})
 	for i := range polls {
 		records = append(records, mmio.AccessRecord{
 			BDF: "0000:03:00.0", BARIndex: 2, Address: 0xf7800024, Offset: 0x24, Width: 4,
@@ -222,9 +221,8 @@ func TestReplay_PollCountDoesNotChangeObservedTransition(t *testing.T) {
 		}},
 	}
 	traceWithPolls := func(polls int) *mmio.TraceResult {
-		records := []mmio.AccessRecord{
-			{Type: mmio.AccessWrite, Width: 4, Offset: 0x20, Value: 1},
-		}
+		records := make([]mmio.AccessRecord, 0, polls+2)
+		records = append(records, mmio.AccessRecord{Type: mmio.AccessWrite, Width: 4, Offset: 0x20, Value: 1})
 		for range polls {
 			records = append(records, mmio.AccessRecord{
 				Type: mmio.AccessRead, Width: 4, Offset: 0x24, Value: 0, Timestamp: 10 * time.Nanosecond,

@@ -151,9 +151,10 @@ func PlanRequest(req Request, limits Limits) (Plan, error) {
 		}
 
 		startBE := uint8(0xF)
-		if dwIndex == 0 {
+		switch dwIndex {
+		case 0:
 			startBE = req.FirstBE
-		} else if dwIndex == req.LengthDW-1 {
+		case req.LengthDW - 1:
 			startBE = req.LastBE
 		}
 		firstByteOffset := uint8(0)
@@ -277,10 +278,10 @@ func completionByteCount(req Request) uint16 {
 func enabledBytesInRange(req Request, first, count uint16) uint16 {
 	var enabled uint16
 	for i := first; i < first+count; i++ {
-		switch {
-		case i == 0:
+		switch i {
+		case 0:
 			enabled += uint16(bits.OnesCount8(req.FirstBE))
-		case i == req.LengthDW-1:
+		case req.LengthDW - 1:
 			enabled += uint16(bits.OnesCount8(req.LastBE))
 		default:
 			enabled += 4

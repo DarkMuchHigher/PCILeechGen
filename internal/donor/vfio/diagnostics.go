@@ -49,7 +49,6 @@ func ListIOMMUGroupDevices(bdf string) ([]string, error) {
 	return devices, nil
 }
 
-// CheckIOMMUGroupSafe rejects groups with peers still owned by native drivers.
 func CheckIOMMUGroupSafe(bdf string) error {
 	devices, err := ListIOMMUGroupDevices(bdf)
 	if err != nil {
@@ -88,8 +87,6 @@ func checkedBoundDriver(bdf string) (string, error) {
 	return filepath.Base(target), nil
 }
 
-// CheckSafeToBind rejects a PCI device that backs a mounted filesystem or has
-// IOMMU-group peers still owned by native drivers.
 func CheckSafeToBind(bdf string) error {
 	if err := CheckMountedDeviceSafe(bdf); err != nil {
 		return err
@@ -97,7 +94,6 @@ func CheckSafeToBind(bdf string) error {
 	return CheckIOMMUGroupSafe(bdf)
 }
 
-// CheckMountedDeviceSafe rejects a PCI device that backs a mounted filesystem.
 func CheckMountedDeviceSafe(bdf string) error {
 	if err := checkInitialPIDNamespace(); err != nil {
 		return err
@@ -221,7 +217,7 @@ func blockBackedByTarget(blockPath, target string, seen map[string]bool) (bool, 
 		return true, nil
 	}
 
-	if _, err := os.Stat(filepath.Join(resolved, "partition")); err == nil {
+	if _, err = os.Stat(filepath.Join(resolved, "partition")); err == nil {
 		return blockBackedByTarget(filepath.Dir(resolved), target, seen)
 	} else if !os.IsNotExist(err) {
 		return false, err
@@ -229,12 +225,12 @@ func blockBackedByTarget(blockPath, target string, seen map[string]bool) (bool, 
 
 	if subsystem, ok := nvmeSubsystemDir(resolved); ok {
 		multipath := filepath.Join(resolved, "multipath")
-		paths, err := os.ReadDir(multipath)
-		if err == nil && len(paths) > 0 {
+		paths, readErr := os.ReadDir(multipath)
+		if readErr == nil && len(paths) > 0 {
 			return blockLinksBackedByTarget(multipath, paths, target, seen)
 		}
-		if err != nil && !os.IsNotExist(err) {
-			return false, fmt.Errorf("cannot resolve NVMe multipath head %s: %w", resolved, err)
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return false, fmt.Errorf("cannot resolve NVMe multipath head %s: %w", resolved, readErr)
 		}
 
 		entries, fallbackErr := os.ReadDir(subsystem)
@@ -318,8 +314,6 @@ func unescapeMountInfo(value string) string {
 	return replacer.Replace(value)
 }
 
-// CheckLiveEnvironment detects common live-media boot markers without treating
-// container overlay filesystems as live USB installations.
 func CheckLiveEnvironment() (bool, string, error) {
 	cmdline, err := os.ReadFile(procCmdlinePath)
 	if err != nil {

@@ -1,5 +1,3 @@
-// Package baraccess defines the conservative live NVMe BAR read policy shared
-// by sysfs, profiling and VFIO. A BAR aperture is not a safe readable byte array.
 package baraccess
 
 import (
@@ -19,16 +17,10 @@ import (
 const NVMeSnapshotSize = 0x38
 const NVMeReadPolicy = "nvme-baseline-dword-v1"
 
-// NVMeOffsets lists baseline readable controller DWORDs, in address order.
-// Excludes reserved 0x18, optional subsystem reset 0x20, optional/extended
-// registers, and ALL doorbells (0x1000+). No write probing is permitted.
-// Return a fresh slice so callers cannot mutate the policy.
 func NVMeOffsets() []int {
 	return []int{0x00, 0x04, 0x08, 0x0c, 0x10, 0x14, 0x1c, 0x24, 0x28, 0x2c, 0x30, 0x34}
 }
 
-// ResourceIsNVMe fails closed if device class metadata is unavailable. This
-// prevents a direct low-level caller from accidentally selecting a blind scan.
 func ResourceIsNVMe(resourcePath string) (bool, error) {
 	raw, err := os.ReadFile(filepath.Join(filepath.Dir(resourcePath), "class"))
 	if err != nil {
@@ -41,9 +33,6 @@ func ResourceIsNVMe(resourcePath string) (bool, error) {
 	return devclass.IsNVMe(uint32(class)), nil
 }
 
-// ReadNVMe snapshots BAR0 through exact DWORD reads. Holes in the compact
-// buffer are zero placeholders, NOT observed register values. No partial
-// snapshot is published on failure; all-ones CAP is rejected before more reads.
 func ReadNVMe(barIndex, size int, read32 func(int) (uint32, error)) ([]byte, error) {
 	if barIndex != 0 {
 		return nil, fmt.Errorf("NVMe BAR%d skipped: only baseline BAR0 registers are allowlisted", barIndex)
@@ -68,9 +57,6 @@ func ReadNVMe(barIndex, size int, read32 func(int) (uint32, error)) ([]byte, err
 	return data, nil
 }
 
-// Load32 uses one aligned 32-bit load on x86, not Go's bulk copy/memmove or
-// potentially bytewise decoding of MMIO. Atomic loads compile to MOVL on x86;
-// other architectures need a reviewed device-memory accessor before enabling.
 func Load32(mapped []byte, off int) (uint32, error) {
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "386" {
 		return 0, fmt.Errorf("NVMe mmap DWORD access is unsupported on %s", runtime.GOARCH)

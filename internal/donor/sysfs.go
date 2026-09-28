@@ -154,8 +154,6 @@ func (sr *SysfsReader) ReadResourceFile(bdf pci.BDF) ([]pci.BAR, error) {
 // ReadBARContent reads the memory contents of a BAR from sysfs resource file.
 // The resource{N} files in sysfs provide direct access to the BAR's memory region.
 // maxSize limits the read to prevent exceeding FPGA BRAM capacity.
-// NVMe additionally requires class metadata and uses a sparse baseline BAR0
-// DWORD snapshot, regardless of maxSize. No bulk-read fallback is used for NVMe.
 //
 // When a device is bound to vfio-pci, direct read() on resource files fails with
 // "input/output error". In this case, mmap() is used instead, which works because
@@ -179,7 +177,6 @@ func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([
 	}
 	defer f.Close()
 
-	// Bound before converting to int; large apertures must not overflow on 32-bit.
 	fi, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat BAR%d resource file: %w", barIndex, err)
@@ -196,7 +193,6 @@ func (sr *SysfsReader) ReadBARContent(bdf pci.BDF, barIndex int, maxSize int) ([
 	}
 
 	if nvme {
-		// No bulk-read fallback: every live access must obey the same whitelist.
 		return readNVMeBARViaMmap(f, barIndex, readSize)
 	}
 
@@ -219,7 +215,7 @@ func readNVMeBARViaMmap(f *os.File, barIndex, size int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("NVMe BAR0 mmap failed (no blind fallback): %w", err)
 	}
-	defer syscall.Munmap(mapped)
+	defer func() { _ = syscall.Munmap(mapped) }()
 	return baraccess.ReadNVMe(barIndex, size, func(off int) (uint32, error) {
 		return baraccess.Load32(mapped, off)
 	})

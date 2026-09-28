@@ -165,9 +165,6 @@ func ModelForBIR(models []*BARModel, bir int) *BARModel {
 func BuildBARModel(barData []byte, classCode uint32, profile *donor.BARProfile) *BARModel {
 	// Use probe data when available, but bail if VFIO reported
 	// everything as writable (breaks CC->CSTS handshake etc).
-	// A read-only NVMe snapshot has no measured write masks. Use the existing
-	// spec model so zero masks do not disable CC/AQA/ASQ/ACQ writes or drop
-	// currently-zero registers required for controller initialization.
 	if profile != nil && len(profile.Probes) > 0 && profile.ReadPolicy != baraccess.NVMeReadPolicy {
 		if !isProbeDataReliable(profile) {
 			slog.Warn("BAR probe data unreliable (all registers report fully writable), falling back to spec-based model",
@@ -175,12 +172,6 @@ func BuildBARModel(barData []byte, classCode uint32, profile *donor.BARProfile) 
 		} else {
 			model := SynthesizeBARModel(profile, classCode)
 			if model != nil {
-				// The collector profiles BARs with the read-only snapshot profiler
-				// (active writes can brick a device), so every probe reports
-				// RWMask == 0. A probe-derived model then has no writable registers
-				// and the driver cannot program the device (e.g. NVMe CC/AQA/ASQ/ACQ
-				// writes get dropped, zero-valued registers are pruned away).
-				// Prefer the spec model for classes that have one.
 				if hasWritableRegisters(model) || specBARModelForClass(classCode, barData) == nil {
 					return model
 				}
@@ -202,9 +193,6 @@ func BuildBARModel(barData []byte, classCode uint32, profile *donor.BARProfile) 
 	return model
 }
 
-// hasWritableRegisters reports whether the model has at least one register a
-// driver may write (plain RW or W1C bits). A read-only probe snapshot yields a
-// model without any, which is never usable for real device emulation.
 func hasWritableRegisters(m *BARModel) bool {
 	if m == nil {
 		return false
@@ -294,10 +282,6 @@ func specRegisterAttrs(classCode uint32) map[uint32]specRegAttr {
 	return out
 }
 
-// validateModel checks for misaligned or duplicate offsets and inconsistent
-// masks. It returns an error rather than panicking so a malformed model - a
-// spec-table bug, or hostile donor-derived probe data once active probing is
-// enabled - degrades gracefully instead of aborting the whole build.
 func validateModel(m *BARModel) error {
 	seen := make(map[uint32]string, len(m.Registers))
 	for _, r := range m.Registers {

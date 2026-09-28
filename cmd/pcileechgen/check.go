@@ -26,8 +26,6 @@ as a donor device with VFIO. Also shows board compatibility analysis.
 
 Example:
   pcileechgen check --bdf 0000:03:00.0`,
-	// A failing check is a diagnostic result, not a usage error: report the
-	// issues via the printed summary and a non-zero exit, without a usage dump.
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,7 +70,6 @@ func (c *checker) run() error {
 		return nil
 	}
 	fmt.Fprintln(c.w, color.Failf("%d issue(s) found - see above for details", c.issues))
-	// Non-zero exit so scripted "check && build" pipelines actually gate.
 	return fmt.Errorf("%d issue(s) found", c.issues)
 }
 
@@ -192,11 +189,12 @@ func (c *checker) checkDriver() {
 	if c.dev == nil {
 		return
 	}
-	if c.dev.Driver == "" {
+	switch c.dev.Driver {
+	case "":
 		fmt.Fprintln(c.w, color.OK("No driver bound"))
-	} else if c.dev.Driver == "vfio-pci" {
+	case "vfio-pci":
 		fmt.Fprintln(c.w, color.OK("Already bound to vfio-pci"))
-	} else {
+	default:
 		fmt.Fprintln(c.w, color.Warnf("Currently bound to %q (will need unbinding)", c.dev.Driver))
 	}
 }

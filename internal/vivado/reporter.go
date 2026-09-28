@@ -142,14 +142,14 @@ func (r *Report) Summary() string {
 		sb.WriteString("Build Status: unknown\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("Errors: %d, Critical Warnings: %d, Warnings: %d\n",
-		r.Errors, r.CriticalWarns, r.Warnings))
+	fmt.Fprintf(&sb, "Errors: %d, Critical Warnings: %d, Warnings: %d\n",
+		r.Errors, r.CriticalWarns, r.Warnings)
 
 	actionable := r.ActionableEntries()
 	benign := len(r.Entries) - len(actionable)
 
 	if benign > 0 {
-		sb.WriteString(fmt.Sprintf("(%d benign warnings filtered)\n", benign))
+		fmt.Fprintf(&sb, "(%d benign warnings filtered)\n", benign)
 	}
 
 	if len(actionable) > 0 {
@@ -157,10 +157,10 @@ func (r *Report) Summary() string {
 		shown := 0
 		for _, e := range actionable {
 			if shown >= 20 {
-				sb.WriteString(fmt.Sprintf("  ... and %d more\n", len(actionable)-shown))
+				fmt.Fprintf(&sb, "  ... and %d more\n", len(actionable)-shown)
 				break
 			}
-			sb.WriteString(fmt.Sprintf("  [%s] %s: %s\n", e.Severity, e.Code, e.Message))
+			fmt.Fprintf(&sb, "  [%s] %s: %s\n", e.Severity, e.Code, e.Message)
 			shown++
 		}
 	}

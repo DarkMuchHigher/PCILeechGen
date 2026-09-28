@@ -355,7 +355,6 @@ func EnableMemorySpace(bdf string) error {
 // power state bits in the PM Control/Status register and disabling
 // kernel runtime power management.
 func WakeToD0(bdf string) error {
-	// Disable kernel runtime PM so it cannot put the device back to sleep.
 	powerCtrl := filepath.Join(sysfsBase, bdf, "power", "control")
 	if err := os.WriteFile(powerCtrl, []byte("on"), 0200); err != nil {
 		return fmt.Errorf("cannot disable runtime power management for %s: %w", bdf, err)

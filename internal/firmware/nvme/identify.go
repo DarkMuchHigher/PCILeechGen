@@ -96,7 +96,7 @@ func buildIdentifyController(ids firmware.DeviceIDs, barData []byte, identity *C
 		sn = strings.TrimSpace(identity.Serial)
 	}
 	if sn == "" {
-		sn = generateSerialNumber(ids)
+		sn = generateSerialNumber()
 	}
 	copy(data[0x004:0x018], padASCII(sn, 20))
 
@@ -215,7 +215,7 @@ func buildIdentifyNamespace(barData []byte) [4096]byte {
 }
 
 // generateSerialNumber creates a vendor-prefixed random serial.
-func generateSerialNumber(ids firmware.DeviceIDs) string {
+func generateSerialNumber() string {
 	prefix := vendorSNPrefix()
 	const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	buf := make([]byte, 12)

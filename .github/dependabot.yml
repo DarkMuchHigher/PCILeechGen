@@ -1,6 +1,5 @@
 version: 2
 updates:
-  # Go modules
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
@@ -9,8 +8,11 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps"
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
-  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -19,3 +21,7 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

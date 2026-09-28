@@ -69,10 +69,10 @@ func (ow *OutputWriter) WriteAll(ctx *donor.DeviceContext, b *board.Board) error
 		return fmt.Errorf("prepare output directory: %w", err)
 	}
 	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0755); err != nil {
+	if err = os.MkdirAll(parent, 0755); err != nil {
 		return fmt.Errorf("create output parent: %w", err)
 	}
-	if err := validateRealDirectory(parent, "output parent"); err != nil {
+	if err = validateRealDirectory(parent, "output parent"); err != nil {
 		return err
 	}
 	stage, err := os.MkdirTemp(parent, "."+filepath.Base(target)+".tmp-")
@@ -192,7 +192,7 @@ func (ow *OutputWriter) validateOutputTarget() (string, error) {
 	if target == filepath.Dir(target) {
 		return "", fmt.Errorf("refusing filesystem root as output directory")
 	}
-	if err := validateExistingOutputAncestor(target); err != nil {
+	if err = validateExistingOutputAncestor(target); err != nil {
 		return "", err
 	}
 	info, err := os.Lstat(target)
@@ -236,7 +236,7 @@ func publishOutputDirectory(stage, target string) error {
 	hadTarget := false
 	if _, err := os.Lstat(target); err == nil {
 		hadTarget = true
-		if err := os.Rename(target, backup); err != nil {
+		if err = os.Rename(target, backup); err != nil {
 			return fmt.Errorf("move previous output aside: %w", err)
 		}
 	} else if !os.IsNotExist(err) {
@@ -271,16 +271,16 @@ func (ow *OutputWriter) prepareOutputDir() error {
 	if target == filepath.Dir(target) {
 		return fmt.Errorf("refusing filesystem root as output directory")
 	}
-	if err := validateExistingOutputAncestor(target); err != nil {
+	if err = validateExistingOutputAncestor(target); err != nil {
 		return err
 	}
 
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
-		if err := os.MkdirAll(target, 0755); err != nil {
+		if err = os.MkdirAll(target, 0755); err != nil {
 			return fmt.Errorf("create output directory: %w", err)
 		}
-		if err := validateRealDirectory(target, "output directory"); err != nil {
+		if err = validateRealDirectory(target, "output directory"); err != nil {
 			return err
 		}
 		marker := filepath.Join(target, outputOwnershipMarker)
@@ -290,7 +290,7 @@ func (ow *OutputWriter) prepareOutputDir() error {
 			}
 			return fmt.Errorf("output ownership marker unexpectedly exists: %s", marker)
 		}
-		if err := os.WriteFile(marker, []byte(outputOwnershipContent), 0644); err != nil {
+		if err = os.WriteFile(marker, []byte(outputOwnershipContent), 0644); err != nil {
 			return fmt.Errorf("write output ownership marker: %w", err)
 		}
 	} else if err != nil {
