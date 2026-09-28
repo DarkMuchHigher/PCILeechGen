@@ -3,8 +3,42 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/sercanarga/pcileechgen/internal/donor/vfio"
 )
+
+func TestMMIOTrace_RequiresLiveFlag(t *testing.T) {
+	previous := mmioTraceOpts
+	t.Cleanup(func() { mmioTraceOpts = previous })
+	mmioTraceOpts = mmioTraceOptions{bdf: "0000:03:00.0", barSize: 4096, barBase: "0xf7800000", duration: time.Second}
+
+	err := mmioTraceCmd.RunE(mmioTraceCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "--live") {
+		t.Fatalf("live capture without --live: err = %v, want refusal", err)
+	}
+}
+
+func TestMMIOTrace_RejectsLiveHostEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	mountInfo := filepath.Join(dir, "mountinfo")
+	cmdline := filepath.Join(dir, "cmdline")
+	if err := os.WriteFile(mountInfo, []byte("36 25 0:32 / / rw - overlay overlay rw\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cmdline, []byte("quiet splash boot=casper"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vfio.SetProcPaths(mountInfo, cmdline)
+	t.Cleanup(vfio.ResetProcPaths)
+
+	opts := mmioTraceOptions{bdf: "0000:03:00.0", barSize: 4096, live: true, duration: time.Second}
+	if _, err := loadMMIOTrace(opts, 0xf7800000); err == nil || !strings.Contains(err.Error(), "live/USB-boot") {
+		t.Fatalf("live capture on live host: err = %v, want refusal", err)
+	}
+}
 
 func TestParseTraceBARBase(t *testing.T) {
 	got, err := parseTraceBARBase("f7800000")

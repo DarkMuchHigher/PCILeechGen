@@ -10,8 +10,31 @@ import (
 
 	"github.com/sercanarga/pcileechgen/internal/donor"
 	"github.com/sercanarga/pcileechgen/internal/donor/behavior"
+	"github.com/sercanarga/pcileechgen/internal/donor/vfio"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 )
+
+func TestLoadDonorContext_RefusesLiveHostWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	mountInfo := filepath.Join(dir, "mountinfo")
+	cmdline := filepath.Join(dir, "cmdline")
+	if err := os.WriteFile(mountInfo, []byte("36 25 0:32 / / rw - overlay overlay rw\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cmdline, []byte("quiet splash boot=casper"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	vfio.SetProcPaths(mountInfo, cmdline)
+	t.Cleanup(vfio.ResetProcPaths)
+
+	previous := buildOpts
+	t.Cleanup(func() { buildOpts = previous })
+	buildOpts = buildFlags{bdf: "0000:03:00.0"}
+
+	if _, err := loadDonorContext(); err == nil || !strings.Contains(err.Error(), "live/USB-boot") {
+		t.Fatalf("live build on live host: err = %v, want refusal", err)
+	}
+}
 
 func TestLoadDonorContext_RejectsBDFAndJSONTogether(t *testing.T) {
 	previous := buildOpts

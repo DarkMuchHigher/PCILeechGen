@@ -13,6 +13,7 @@ import (
 	"github.com/sercanarga/pcileechgen/internal/color"
 	"github.com/sercanarga/pcileechgen/internal/donor/behavior"
 	"github.com/sercanarga/pcileechgen/internal/donor/mmio"
+	"github.com/sercanarga/pcileechgen/internal/donor/vfio"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ type mmioTraceOptions struct {
 	barBase     string
 	classCode   string
 	jsonOutput  bool
+	live        bool
 	outputFile  string
 	traceFile   string
 	rulesOutput string
@@ -38,11 +40,14 @@ var mmioTraceCmd = &cobra.Command{
 	Long: `Captures MMIO BAR accesses for a short duration using the kernel mmiotrace tracer.
 
 Example:
-  pcileechgen mmio-trace --bdf 0000:03:00.0 --bar-base 0xf7800000 --bar-size 4096 --duration 5s
-  pcileechgen mmio-trace --bdf 03:00.0 --bar-base 0xf7800000 --bar-size 4096 --class-code 0x010802
+  pcileechgen mmio-trace --live --bdf 0000:03:00.0 --bar-base 0xf7800000 --bar-size 4096 --duration 5s
+  pcileechgen mmio-trace --live --bdf 03:00.0 --bar-base 0xf7800000 --bar-size 4096 --class-code 0x010802
   pcileechgen mmio-trace --trace-file mmiotrace.txt --bar-base 0xf7800000 --bar-index 2 --json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if mmioTraceOpts.traceFile == "" {
+			if !mmioTraceOpts.live {
+				return fmt.Errorf("live capture requires --live; without --trace-file the command touches the donor's BAR")
+			}
 			if _, err := pci.ParseBDF(mmioTraceOpts.bdf); err != nil {
 				return fmt.Errorf("invalid BDF %q: %w", mmioTraceOpts.bdf, err)
 			}
@@ -147,6 +152,16 @@ func loadMMIOTrace(opts mmioTraceOptions, barBase uint64) (*mmio.TraceResult, er
 	if barBase == 0 {
 		return nil, fmt.Errorf("--bar-base is required for target-aware live capture")
 	}
+	if live, reason, err := vfio.CheckLiveEnvironment(); err != nil {
+		return nil, fmt.Errorf("cannot verify host environment: %w", err)
+	} else if live {
+		return nil, fmt.Errorf("live/USB-boot host detected (%s); refusing live MMIO capture", reason)
+	}
+	if reachable, err := vfio.ConfigSpaceReachable(opts.bdf); err != nil {
+		return nil, fmt.Errorf("cannot read donor config space: %w", err)
+	} else if !reachable {
+		return nil, fmt.Errorf("donor %s is not reachable via config space; refusing live MMIO capture", opts.bdf)
+	}
 	start := time.Now()
 	trace, err := mmio.LiveTraceTarget(mmio.TraceTarget{
 		BDF: opts.bdf, BARIndex: opts.barIndex, BARBase: barBase, BARSize: opts.barSize,
@@ -231,6 +246,7 @@ func init() {
 	mmioTraceCmd.Flags().StringVar(&mmioTraceOpts.outputFile, "output", "", "save raw trace JSON to file")
 	mmioTraceCmd.Flags().StringVar(&mmioTraceOpts.rulesOutput, "rules-output", "", "save inferred behavior rules to a JSON artifact")
 	mmioTraceCmd.Flags().StringVar(&mmioTraceOpts.traceFile, "trace-file", "", "analyze an existing mmiotrace text file instead of capturing live")
+	mmioTraceCmd.Flags().BoolVar(&mmioTraceOpts.live, "live", false, "capture from the live donor BAR (required without --trace-file)")
 	mmioTraceCmd.Flags().BoolVar(&mmioTraceOpts.jsonOutput, "json", false, "emit machine-readable report")
 	rootCmd.AddCommand(mmioTraceCmd)
 }

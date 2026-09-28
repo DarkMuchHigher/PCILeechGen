@@ -7,6 +7,7 @@ import (
 	"github.com/sercanarga/pcileechgen/internal/board"
 	"github.com/sercanarga/pcileechgen/internal/donor"
 	"github.com/sercanarga/pcileechgen/internal/donor/behavior"
+	"github.com/sercanarga/pcileechgen/internal/donor/vfio"
 	"github.com/sercanarga/pcileechgen/internal/firmware"
 	"github.com/sercanarga/pcileechgen/internal/pci"
 	"github.com/sercanarga/pcileechgen/internal/vivado"
@@ -128,6 +129,14 @@ func loadDonorContext() (*donor.DeviceContext, error) {
 	} else {
 		if buildOpts.bdf == "" {
 			return nil, fmt.Errorf("either --bdf or --from-json is required")
+		}
+		live, reason, liveErr := vfio.CheckLiveEnvironment()
+		switch {
+		case liveErr != nil:
+			slog.Warn("cannot verify host environment", "error", liveErr)
+		case live && !buildOpts.force:
+			return nil, fmt.Errorf("live/USB-boot host detected (%s); live donor collection is unreliable here. "+
+				"Use an installed Linux system, --from-json, or --force to override", reason)
 		}
 		bdf, parseErr := pci.ParseBDF(buildOpts.bdf)
 		if parseErr != nil {
